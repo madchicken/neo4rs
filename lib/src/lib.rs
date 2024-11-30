@@ -472,6 +472,7 @@ pub mod summary;
 mod txn;
 mod types;
 mod version;
+mod routing;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};

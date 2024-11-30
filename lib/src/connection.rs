@@ -33,23 +33,31 @@ use tokio_rustls::{
 };
 use url::{Host, Url};
 
+pub trait Connection {
+    fn create(stream: impl Into<ConnectionStream>, version: Version) -> Self;
+    async fn reset(&mut self) -> Result<()>;
+    async fn send_recv(&mut self, message: BoltRequest) -> Result<BoltResponse>;
+    async fn send(&mut self, message: BoltRequest) -> Result<()>;
+    async fn recv(&mut self) -> Result<BoltResponse>;
+}
+
 const MAX_CHUNK_SIZE: usize = 65_535 - mem::size_of::<u16>();
 
 #[derive(Debug)]
-pub struct Connection {
+pub struct PooledConnection {
     version: Version,
     stream: BufStream<ConnectionStream>,
 }
 
-impl Connection {
-    pub(crate) async fn new(info: &ConnectionInfo) -> Result<Self> {
+impl PooledConnection {
+    pub(crate) async fn new(info: &ConnectionInfo) -> Result<PooledConnection> {
         let mut connection = Self::prepare(info).await?;
         let hello = info.to_hello(connection.version);
         connection.hello(hello).await?;
         Ok(connection)
     }
 
-    pub(crate) async fn prepare(info: &ConnectionInfo) -> Result<Self> {
+    pub(crate) async fn prepare(info: &ConnectionInfo) -> Result<PooledConnection> {
         let mut stream = match &info.host {
             Host::Domain(domain) => TcpStream::connect((&**domain, info.port)).await?,
             Host::Ipv4(ip) => TcpStream::connect((*ip, info.port)).await?,
@@ -77,13 +85,6 @@ impl Connection {
         stream.read_exact(&mut response).await?;
         let version = Version::parse(response)?;
         Ok(version)
-    }
-
-    fn create(stream: impl Into<ConnectionStream>, version: Version) -> Connection {
-        Connection {
-            version,
-            stream: BufStream::new(stream.into()),
-        }
     }
 
     fn init_msg() -> Bytes {
@@ -115,34 +116,6 @@ impl Connection {
         }
     }
 
-    pub async fn reset(&mut self) -> Result<()> {
-        #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-        {
-            match self.send_recv(BoltRequest::reset()).await? {
-                BoltResponse::Success(_) => Ok(()),
-                BoltResponse::Failure(f) => Err(Error::Neo4j(f.into_error())),
-                msg => Err(msg.into_error("RESET")),
-            }
-        }
-
-        #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-        {
-            match self.send_recv_as(Reset).await? {
-                Summary::Success(_) => Ok(()),
-                Summary::Failure(err) => Err(Error::ConnectionClosed(err)),
-                msg => Err(Error::UnexpectedMessage(format!(
-                    "unexpected response for RESET: {:?}",
-                    msg
-                ))),
-            }
-        }
-    }
-
-    pub async fn send_recv(&mut self, message: BoltRequest) -> Result<BoltResponse> {
-        self.send(message).await?;
-        self.recv().await
-    }
-
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     #[allow(unused)]
     pub(crate) async fn send_recv_as<T: Message + ExpectedResponse>(
@@ -153,21 +126,11 @@ impl Connection {
         self.recv_as().await
     }
 
-    pub async fn send(&mut self, message: BoltRequest) -> Result<()> {
-        let bytes: Bytes = message.into_bytes(self.version)?;
-        self.send_bytes(bytes).await
-    }
-
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     #[allow(unused)]
     pub(crate) async fn send_as<T: Message>(&mut self, message: T) -> Result<()> {
         let bytes = message.to_bytes()?;
         self.send_bytes(bytes).await
-    }
-
-    pub async fn recv(&mut self) -> Result<BoltResponse> {
-        let bytes = self.recv_bytes().await?;
-        BoltResponse::parse(self.version, bytes)
     }
 
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
@@ -234,6 +197,50 @@ impl Connection {
     }
 }
 
+impl Connection for PooledConnection {
+    fn create(stream: impl Into<ConnectionStream>, version: Version) -> PooledConnection {
+        PooledConnection {
+            version,
+            stream: BufStream::new(stream.into()),
+        }
+    }
+
+    async fn reset(&mut self) -> Result<()> {
+        #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+        {
+            match self.send_recv(BoltRequest::reset()).await? {
+                BoltResponse::Success(_) => Ok(()),
+                BoltResponse::Failure(f) => Err(Error::Neo4j(f.into_error())),
+                msg => Err(msg.into_error("RESET")),
+            }
+        }
+
+        #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+        {
+            match self.send_recv_as(Reset).await? {
+                Summary::Success(_) => Ok(()),
+                Summary::Failure(err) => Err(Error::ConnectionClosed(err)),
+                msg => Err(Error::UnexpectedMessage(format!(
+                    "unexpected response for RESET: {:?}",
+                    msg
+                ))),
+            }
+        }
+    }
+    async fn send_recv(&mut self, message: BoltRequest) -> Result<BoltResponse> {
+        self.send(message).await?;
+        self.recv().await
+    }
+    async fn send(&mut self, message: BoltRequest) -> Result<()> {
+        let bytes: Bytes = message.into_bytes(self.version)?;
+        self.send_bytes(bytes).await
+    }
+    async fn recv(&mut self) -> Result<BoltResponse> {
+        let bytes = self.recv_bytes().await?;
+        BoltResponse::parse(self.version, bytes)
+    }
+}
+
 pub(crate) struct ConnectionInfo {
     user: Arc<str>,
     password: Arc<str>,
@@ -243,8 +250,8 @@ pub(crate) struct ConnectionInfo {
     encryption: Option<(TlsConnector, ServerName<'static>)>,
 }
 
-impl std::fmt::Debug for ConnectionInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConnectionInfo")
             .field("user", &self.user)
             .field("password", &"***")
@@ -300,7 +307,7 @@ impl ConnectionInfo {
             .transpose()?;
 
         let routing = if routing {
-            log::warn!(concat!(
+            warn!(concat!(
                 "This driver does not yet implement client-side routing. ",
                 "It is possible that operations against a cluster (such as Aura) will fail."
             ));
@@ -433,24 +440,24 @@ impl NeoUrl {
 
     fn warn_on_unexpected_components(&self) {
         if !self.0.username().is_empty() || self.0.password().is_some() {
-            log::warn!(concat!(
+            warn!(concat!(
                 "URI contained auth credentials, which are ignored.",
                 "Credentials are passed outside of the URI"
             ));
         }
         if !matches!(self.0.path(), "" | "/") {
-            log::warn!("URI contained a path, which is ignored.");
+            warn!("URI contained a path, which is ignored.");
         }
 
         if self.0.query().is_some() {
-            log::warn!(concat!(
+            warn!(concat!(
                 "This client does not yet support client-side routing.",
                 "The routing context passed as a query to the URI is ignored."
             ));
         }
 
         if self.0.fragment().is_some() {
-            log::warn!("URI contained a fragment, which is ignored.");
+            warn!("URI contained a fragment, which is ignored.");
         }
     }
 }

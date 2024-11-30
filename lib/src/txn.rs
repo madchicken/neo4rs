@@ -8,6 +8,7 @@ use crate::{
     query::Query,
     stream::RowStream,
 };
+use crate::connection::Connection;
 
 /// A handle which is used to control a transaction, created as a result of [`crate::Graph::start_txn`]
 ///

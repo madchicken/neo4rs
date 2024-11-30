@@ -10,6 +10,7 @@ mod reset;
 mod rollback;
 mod run;
 mod success;
+mod route;
 
 use crate::{
     errors::{Error, Result},
@@ -66,6 +67,7 @@ pub enum BoltRequest {
         deprecated(since = "0.9.0", note = "Use `crate::bolt::Reset` instead.")
     )]
     Reset(reset::Reset),
+    Route(route::Route),
 }
 
 #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
@@ -189,6 +191,10 @@ impl BoltRequest {
     pub fn reset() -> BoltRequest {
         BoltRequest::Reset(reset::Reset::new())
     }
+    
+    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<&str>) -> BoltRequest {
+        BoltRequest::Route(route::Route::new(routing, bookmarks, db))
+    }
 }
 
 impl BoltRequest {
@@ -203,6 +209,7 @@ impl BoltRequest {
             BoltRequest::Commit(commit) => commit.into_bytes(version)?,
             BoltRequest::Rollback(rollback) => rollback.into_bytes(version)?,
             BoltRequest::Reset(reset) => reset.into_bytes(version)?,
+            BoltRequest::Route(route) => route.into_bytes(version)?,
         };
         Ok(bytes)
     }

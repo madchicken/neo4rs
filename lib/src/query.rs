@@ -8,6 +8,7 @@ use crate::{
     types::{BoltList, BoltMap, BoltString, BoltType},
     Error, Success,
 };
+use crate::connection::Connection;
 
 /// Abstracts a cypher query that is sent to neo4j server.
 #[derive(Clone)]
