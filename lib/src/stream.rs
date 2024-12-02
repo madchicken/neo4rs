@@ -20,7 +20,6 @@ use futures::{stream::try_unfold, TryStream};
 use serde::de::DeserializeOwned;
 
 use std::collections::VecDeque;
-use crate::connection::Connection;
 
 #[cfg(feature = "unstable-result-summary")]
 type BoxedSummary = Box<ResultSummary>;

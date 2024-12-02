@@ -10,6 +10,7 @@ use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use log::info;
 use crate::connection::PooledConnection;
+use crate::routing::RoutedConnection;
 
 pub type ConnectionPool = Pool<ConnectionManager>;
 pub type ManagedConnection = Object<ConnectionManager>;
@@ -42,12 +43,17 @@ impl ConnectionManager {
 }
 
 impl Manager for ConnectionManager {
-    type Type = PooledConnection;
+    type Type = Box<dyn Connection>;
     type Error = Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         info!("creating new connection...");
-        PooledConnection::new(&self.info).await
+        let connection = PooledConnection::new(&self.info).await?;
+        if self.info.is_routing() {
+            Ok(Box::new(RoutedConnection::new(Box::new(connection), &self.info).await?))
+        } else {
+            Ok(Box::new(connection))
+        }
     }
 
     async fn recycle(&self, obj: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {

@@ -12,18 +12,14 @@ mod run;
 mod success;
 mod route;
 
-use crate::{
-    errors::{Error, Result},
-    types::{BoltMap, BoltWireFormat},
-    version::Version,
-    BoltString, BoltType,
-};
+use crate::{errors::{Error, Result}, types::{BoltMap, BoltWireFormat}, version::Version, BoltString, BoltType};
 use begin::Begin;
 use bytes::Bytes;
 use failure::Failure;
 use record::Record;
 use run::Run;
 pub(crate) use success::Success;
+use crate::connection::Routing;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BoltResponse {
@@ -105,6 +101,33 @@ impl HelloBuilder {
             routing,
         } = self;
         BoltRequest::hello(agent, principal, credentials, routing, version)
+    }
+}
+
+#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+pub struct RouteBuilder {
+    routing: BoltMap,
+    bookmarks: Vec<&'static str>,
+    db: Option<&'static str>,
+}
+
+impl RouteBuilder {
+    pub fn new(routing: &Routing, bookmarks: Vec<&'static str>) -> Self {
+        let opt: Option<BoltMap> = routing.clone().into();
+        Self {
+            routing: opt.unwrap_or_default(),
+            bookmarks,
+            db: None,
+        }
+    }
+
+    pub fn with_db(self, db: &'static str) -> Self {
+        Self { db: Some(db), ..self }
+    }
+
+    #[cfg_attr(feature = "unstable-bolt-protocol-impl-v2", allow(deprecated))]
+    pub fn build(self, version: Version) -> BoltRequest {
+        BoltRequest::route(self.routing, self.bookmarks, self.db, version)
     }
 }
 
@@ -192,8 +215,12 @@ impl BoltRequest {
         BoltRequest::Reset(reset::Reset::new())
     }
     
-    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<&str>) -> BoltRequest {
-        BoltRequest::Route(route::Route::new(routing, bookmarks, db))
+    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<&str>, version: Version) -> BoltRequest {
+        if version >= Version::V4_3 {
+            BoltRequest::Route(route::Route::new(routing, bookmarks, db))
+        } else {
+            panic!("Route message is not supported in version {:?}", version);
+        }
     }
 }
 

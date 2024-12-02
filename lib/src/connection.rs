@@ -13,13 +13,14 @@ use crate::{
     BoltMap, BoltString, BoltType,
 };
 use bytes::{BufMut, Bytes, BytesMut};
-use log::warn;
+use log::{info, warn};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::{fs::File, io::BufReader, mem, sync::Arc};
+use async_trait::async_trait;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream},
     net::TcpStream,
@@ -33,19 +34,22 @@ use tokio_rustls::{
 };
 use url::{Host, Url};
 
-pub trait Connection {
-    fn create(stream: impl Into<ConnectionStream>, version: Version) -> Self;
+#[async_trait]
+pub trait Connection: Send + Sync {
     async fn reset(&mut self) -> Result<()>;
     async fn send_recv(&mut self, message: BoltRequest) -> Result<BoltResponse>;
     async fn send(&mut self, message: BoltRequest) -> Result<()>;
     async fn recv(&mut self) -> Result<BoltResponse>;
+    async fn hello(&mut self, req: BoltRequest) -> Result<()>;
+    fn version(&self) -> Version;
 }
+
 
 const MAX_CHUNK_SIZE: usize = 65_535 - mem::size_of::<u16>();
 
 #[derive(Debug)]
 pub struct PooledConnection {
-    version: Version,
+    pub(crate) version: Version,
     stream: BufStream<ConnectionStream>,
 }
 
@@ -55,6 +59,13 @@ impl PooledConnection {
         let hello = info.to_hello(connection.version);
         connection.hello(hello).await?;
         Ok(connection)
+    }
+
+    fn create(stream: impl Into<ConnectionStream>, version: Version) -> PooledConnection {
+        PooledConnection {
+            version,
+            stream: BufStream::new(stream.into()),
+        }
     }
 
     pub(crate) async fn prepare(info: &ConnectionInfo) -> Result<PooledConnection> {
@@ -84,6 +95,7 @@ impl PooledConnection {
         let mut response = [0, 0, 0, 0];
         stream.read_exact(&mut response).await?;
         let version = Version::parse(response)?;
+        info!("Connected to Neo4j with version {}", version);
         Ok(version)
     }
 
@@ -92,17 +104,6 @@ impl PooledConnection {
         init.put_slice(&[0x60, 0x60, 0xB0, 0x17]);
         Version::add_supported_versions(&mut init);
         init.freeze()
-    }
-
-    #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-    async fn hello(&mut self, req: BoltRequest) -> Result<()> {
-        match self.send_recv(req).await? {
-            BoltResponse::Success(_msg) => Ok(()),
-            BoltResponse::Failure(msg) => {
-                Err(Error::AuthenticationError(msg.get("message").unwrap()))
-            }
-            msg => Err(msg.into_error("HELLO")),
-        }
     }
 
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
@@ -197,13 +198,8 @@ impl PooledConnection {
     }
 }
 
+#[async_trait]
 impl Connection for PooledConnection {
-    fn create(stream: impl Into<ConnectionStream>, version: Version) -> PooledConnection {
-        PooledConnection {
-            version,
-            stream: BufStream::new(stream.into()),
-        }
-    }
 
     async fn reset(&mut self) -> Result<()> {
         #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
@@ -227,10 +223,12 @@ impl Connection for PooledConnection {
             }
         }
     }
+
     async fn send_recv(&mut self, message: BoltRequest) -> Result<BoltResponse> {
         self.send(message).await?;
         self.recv().await
     }
+
     async fn send(&mut self, message: BoltRequest) -> Result<()> {
         let bytes: Bytes = message.into_bytes(self.version)?;
         self.send_bytes(bytes).await
@@ -239,15 +237,30 @@ impl Connection for PooledConnection {
         let bytes = self.recv_bytes().await?;
         BoltResponse::parse(self.version, bytes)
     }
+
+    #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+    async fn hello(&mut self, req: BoltRequest) -> Result<()> {
+        match self.send_recv(req).await? {
+            BoltResponse::Success(_msg) => Ok(()),
+            BoltResponse::Failure(msg) => {
+                Err(Error::AuthenticationError(msg.get("message").unwrap()))
+            }
+            msg => Err(msg.into_error("HELLO")),
+        }
+    }
+
+    fn version(&self) -> Version {
+        self.version
+    }
 }
 
 pub(crate) struct ConnectionInfo {
-    user: Arc<str>,
-    password: Arc<str>,
-    host: Host<Arc<str>>,
-    port: u16,
-    routing: Routing,
-    encryption: Option<(TlsConnector, ServerName<'static>)>,
+    pub user: Arc<str>,
+    pub password: Arc<str>,
+    pub host: Host<Arc<str>>,
+    pub port: u16,
+    pub routing: Routing,
+    pub encryption: Option<(TlsConnector, ServerName<'static>)>,
 }
 
 impl Debug for ConnectionInfo {
@@ -391,6 +404,10 @@ impl ConnectionInfo {
             .build(version)
     }
 
+    pub(crate) fn is_routing(&self) -> bool {
+        matches!(self.routing, Routing::Yes(_))
+    }
+
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     pub(crate) fn to_hello(&self, version: Version) -> Hello {
         let routing = match self.routing {
@@ -406,10 +423,11 @@ impl ConnectionInfo {
     }
 }
 
-struct NeoUrl(Url);
+#[derive(Clone, Debug)]
+pub struct NeoUrl(Url);
 
 impl NeoUrl {
-    fn parse(uri: &str) -> Result<Self> {
+    pub(crate) fn parse(uri: &str) -> Result<Self> {
         let url = match Url::parse(uri) {
             Ok(url) if url.has_host() => url,
             // missing scheme
@@ -435,7 +453,9 @@ impl NeoUrl {
     }
 
     fn routing_context(&mut self) -> Vec<(BoltString, BoltString)> {
-        Vec::new()
+        Vec::from(vec![("address".into(), BoltString::new(
+            format!("{}:{}", self.0.host().unwrap().to_string(), self.0.port().unwrap_or(7687)).as_str()) 
+        )])
     }
 
     fn warn_on_unexpected_components(&self) {
@@ -459,6 +479,12 @@ impl NeoUrl {
         if self.0.fragment().is_some() {
             warn!("URI contained a fragment, which is ignored.");
         }
+    }
+}
+
+impl Display for NeoUrl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

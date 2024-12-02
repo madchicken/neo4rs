@@ -1,10 +1,10 @@
-use crate::routing::server_address::BoltServerAddress;
+use crate::connection::NeoUrl;
 
 pub trait RoutingTable {
-    fn readers(&self) -> Vec<BoltServerAddress>;
-    fn writers(&self) -> Vec<BoltServerAddress>;
-    fn routers(&self) -> Vec<BoltServerAddress>;
-    fn servers(&self) -> Vec<BoltServerAddress>;
+    fn readers(&self) -> Vec<NeoUrl>;
+    fn writers(&self) -> Vec<NeoUrl>;
+    fn routers(&self) -> Vec<NeoUrl>;
+    fn servers(&self) -> Vec<NeoUrl>;
     fn database(&self) -> String;
     fn expiration_time(&self) -> i64;
 }
