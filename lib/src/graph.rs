@@ -8,6 +8,7 @@ use crate::{
     stream::DetachedRowStream,
     txn::Txn,
 };
+use crate::connection_provider::ConnectionProvider;
 
 /// A neo4j database abstraction.
 /// This type can be cloned and shared across threads, internal resources
@@ -15,7 +16,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Graph {
     config: LiveConfig,
-    pool: ConnectionPool,
+    provider: Box<dyn ConnectionProvider>,
 }
 
 /// Returns a [`Query`] which provides methods like [`Query::param`] to add parameters to the query

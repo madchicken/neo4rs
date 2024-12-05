@@ -1,20 +1,20 @@
 use neo4rs_macros::BoltStruct;
-use crate::{BoltList, BoltMap, BoltString, BoltType};
+use crate::{BoltList, BoltMap, BoltString, BoltType, Database};
 
 #[derive(Debug, Clone, BoltStruct, PartialEq)]
 #[signature(0xB3, 0x66)]
 pub struct Route {
     routing: BoltMap,
     bookmarks: BoltList,
-    db: BoltString,
+    db: BoltString, // TODO: this can also be null. How do we represent a null string?
 }
 
 impl Route {
-    pub fn new(routing: BoltMap, bookmarks: Vec<&str>, db: Option<&str>) -> Self {
+    pub fn new(routing: BoltMap, bookmarks: Vec<&str>, db: Option<Database>) -> Self {
         Route {
             routing,
             bookmarks: BoltList::from(bookmarks.into_iter().map(|b| BoltType::String(BoltString::new(b))).collect::<Vec<BoltType>>()),
-            db: BoltString::from(db.unwrap_or("")),
+            db: BoltString::from(db.map(|d| d.to_string()).unwrap_or("".to_string())),
         }
     }
 }

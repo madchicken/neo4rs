@@ -12,7 +12,11 @@ pub struct RoutedConnection {
 
 impl RoutedConnection {
     pub(crate) async fn new(mut connection: Box<dyn Connection>, info: &ConnectionInfo) -> crate::errors::Result<Self> {
-        let req = RouteBuilder::new(&info.routing, vec![]).build(connection.version());
+        let mut builder = RouteBuilder::new(&info.routing, vec![]);
+        if let Some(database) = info.db.as_ref() {
+            builder.with_db(database.clone());
+        }
+        let req = builder.build(connection.version());
         info!("requesting routing table... {:?}", req);
         match connection.send_recv(req).await? {
             BoltResponse::Success(msg) => {

@@ -5,13 +5,7 @@ use crate::bolt::{
 };
 #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
 use crate::messages::HelloBuilder;
-use crate::{
-    connection::stream::ConnectionStream,
-    errors::{Error, Result},
-    messages::{BoltRequest, BoltResponse},
-    version::Version,
-    BoltMap, BoltString, BoltType,
-};
+use crate::{connection::stream::ConnectionStream, errors::{Error, Result}, messages::{BoltRequest, BoltResponse}, version::Version, BoltMap, BoltString, BoltType, Database};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::{info, warn};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -257,6 +251,7 @@ impl Connection for PooledConnection {
 pub(crate) struct ConnectionInfo {
     pub user: Arc<str>,
     pub password: Arc<str>,
+    pub db: Option<Database>,
     pub host: Host<Arc<str>>,
     pub port: u16,
     pub routing: Routing,
@@ -268,6 +263,7 @@ impl Debug for ConnectionInfo {
         f.debug_struct("ConnectionInfo")
             .field("user", &self.user)
             .field("password", &"***")
+            .field("db", &self.db)
             .field("host", &self.host)
             .field("port", &self.port)
             .field("routing", &self.routing)
@@ -301,6 +297,7 @@ impl ConnectionInfo {
         uri: &str,
         user: &str,
         password: &str,
+        db: Option<Database>,
         tls_config: &ConnectionTLSConfig,
     ) -> Result<Self> {
         let mut url = NeoUrl::parse(uri)?;
@@ -340,6 +337,7 @@ impl ConnectionInfo {
         Ok(Self {
             user: user.into(),
             password: password.into(),
+            db: db.clone(),
             host,
             port: url.port(),
             encryption,

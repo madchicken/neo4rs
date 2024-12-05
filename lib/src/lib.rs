@@ -473,6 +473,7 @@ mod txn;
 mod types;
 mod version;
 mod routing;
+mod connection_provider;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};

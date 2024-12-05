@@ -12,7 +12,7 @@ mod run;
 mod success;
 mod route;
 
-use crate::{errors::{Error, Result}, types::{BoltMap, BoltWireFormat}, version::Version, BoltString, BoltType};
+use crate::{errors::{Error, Result}, types::{BoltMap, BoltWireFormat}, version::Version, BoltString, BoltType, Database};
 use begin::Begin;
 use bytes::Bytes;
 use failure::Failure;
@@ -108,7 +108,7 @@ impl HelloBuilder {
 pub struct RouteBuilder {
     routing: BoltMap,
     bookmarks: Vec<&'static str>,
-    db: Option<&'static str>,
+    db: Option<Database>,
 }
 
 impl RouteBuilder {
@@ -121,8 +121,9 @@ impl RouteBuilder {
         }
     }
 
-    pub fn with_db(self, db: &'static str) -> Self {
-        Self { db: Some(db), ..self }
+    pub fn with_db(&mut self, db: Database) -> &mut Self {
+        self.db = Some(db);
+        self
     }
 
     #[cfg_attr(feature = "unstable-bolt-protocol-impl-v2", allow(deprecated))]
@@ -215,7 +216,7 @@ impl BoltRequest {
         BoltRequest::Reset(reset::Reset::new())
     }
     
-    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<&str>, version: Version) -> BoltRequest {
+    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<Database>, version: Version) -> BoltRequest {
         if version >= Version::V4_3 {
             BoltRequest::Route(route::Route::new(routing, bookmarks, db))
         } else {
