@@ -3,6 +3,6 @@ use crate::Error;
 use crate::pool::ManagedConnection;
 
 #[async_trait]
-pub trait ConnectionProvider {
-    async fn acquire(&self) -> Result<ManagedConnection, Error>;
+pub trait ConnectionProvider: Clone {
+    async fn get(&self) -> Result<ManagedConnection, Error>;
 }

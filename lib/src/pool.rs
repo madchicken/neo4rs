@@ -77,13 +77,14 @@ pub async fn create_pool(config: &Config) -> Result<ConnectionPool> {
         .expect("No timeouts configured"))
 }
 
+#[derive(Clone)]
 pub struct ConnectionPoolProvider {
     pool: ConnectionPool,
 }
 
 #[async_trait]
 impl ConnectionProvider for ConnectionPoolProvider {
-    async fn acquire(&self) -> core::result::Result<ManagedConnection, Error> {
+    async fn get(&self) -> core::result::Result<ManagedConnection, Error> {
         self.pool.get().await.map_err(|_| Error::ConnectionError)
     }
 }
