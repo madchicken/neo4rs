@@ -93,6 +93,14 @@ pub enum Error {
 
     #[error("{0}")]
     DeserializationError(DeError),
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    #[error("Failed to fetch the routing table [{}]: {}", _0.code, _0.message)]
+    RoutingTableError(crate::bolt::Failure),
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    #[error("The request has been ignored by the server. This can happen if the server is under pressure or there was an issue with the memory.")]
+    RequestIgnoredError,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

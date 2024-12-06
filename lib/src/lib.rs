@@ -472,6 +472,7 @@ pub mod summary;
 mod txn;
 mod types;
 mod version;
+#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
 mod routing;
 mod connection_provider;
 
@@ -497,3 +498,6 @@ pub use crate::types::{
 pub use crate::version::Version;
 
 pub(crate) use messages::Success;
+
+#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+pub(crate) use crate::bolt::{RoutingTable};

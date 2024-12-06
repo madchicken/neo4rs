@@ -1,13 +1,12 @@
 use std::time::Duration;
 use async_trait::async_trait;
 use crate::auth::ConnectionTLSConfig;
-use crate::{config::Config, connection::{Connection, ConnectionInfo}, errors::{Error, Result}, Database};
+use crate::{config::Config, connection::{ConnectionInfo}, errors::{Error, Result}, Database};
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use log::info;
-use crate::connection::PooledConnection;
+use crate::connection::Connection;
 use crate::connection_provider::ConnectionProvider;
-use crate::routing::RoutedConnection;
 
 pub type ConnectionPool = Pool<ConnectionManager>;
 pub type ManagedConnection = Object<ConnectionManager>;
@@ -41,17 +40,13 @@ impl ConnectionManager {
 }
 
 impl Manager for ConnectionManager {
-    type Type = Box<dyn Connection>;
+    type Type = Connection;
     type Error = Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         info!("creating new connection...");
-        let connection = PooledConnection::new(&self.info).await?;
-        if self.info.is_routing() {
-            Ok(Box::new(RoutedConnection::new(Box::new(connection), &self.info).await?))
-        } else {
-            Ok(Box::new(connection))
-        }
+        let connection = Connection::new(&self.info).await?;
+        Ok(connection)
     }
 
     async fn recycle(&self, obj: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {

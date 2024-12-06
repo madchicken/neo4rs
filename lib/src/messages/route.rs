@@ -1,5 +1,5 @@
-use neo4rs_macros::BoltStruct;
 use crate::{BoltList, BoltMap, BoltString, BoltType, Database};
+use neo4rs_macros::BoltStruct;
 
 #[derive(Debug, Clone, BoltStruct, PartialEq)]
 #[signature(0xB3, 0x66)]
@@ -19,13 +19,46 @@ impl Route {
     }
 }
 
+/*
+impl From<BoltMap> for RoutingTable {
+    fn from(rt: BoltMap) -> Self {
+        let mut builder = ClusterRoutingTableBuilder::new();
+        let ttl = rt.get::<i64>("ttl").unwrap_or(0);
+        let db = rt.get::<String>("db").unwrap_or_default();
+        builder.with_database(db).with_expiration_time(ttl);
+        let servers = rt.get::<Vec<BoltMap>>("servers").unwrap_or_default();
+        for server in servers {
+            let role = server.get::<String>("role").unwrap_or_default();
+            let addresses = server.get::<Vec<String>>("addresses").unwrap_or_default();
+            let addresses = addresses
+                .iter()
+                .map(|address| NeoUrl::parse(address).unwrap())
+                .collect::<Vec<_>>();
+            match role.as_str() {
+                "ROUTE" => {
+                    builder.with_routers(addresses);
+                }
+                "WRITE" => {
+                    builder.with_writers(addresses);
+                }
+                "READ" => {
+                    builder.with_readers(addresses);
+                }
+                _ => {}
+            }
+        }
+        builder.build()
+    }
+}
+ */
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::version::Version;
-    use bytes::*;
     use crate::connection::Routing;
     use crate::types::{list, map, string, BoltWireFormat};
+    use crate::version::Version;
+    use bytes::*;
 
     #[test]
     fn should_serialize_route() {

@@ -1,13 +1,13 @@
+use crate::RoutingTable;
 use crate::connection::NeoUrl;
-use crate::routing::cluster_routing_table::ClusterRoutingTable;
 use crate::routing::load_balancing::LoadBalancingStrategy;
 
 pub struct LeastConnectedStrategy {
-    cluster_routing_table: ClusterRoutingTable,
+    cluster_routing_table: RoutingTable,
 }
 
 impl LeastConnectedStrategy {
-    pub fn new(cluster_routing_table: ClusterRoutingTable) -> Self {
+    pub fn new(cluster_routing_table: RoutingTable) -> Self {
         LeastConnectedStrategy {
             cluster_routing_table,
         }

@@ -14,12 +14,12 @@ mod structs;
 mod summary;
 
 pub use request::{
-    Commit, Discard, Goodbye, Hello, HelloBuilder, Pull, Reset, Rollback, WrapExtra,
+    Commit, Discard, Goodbye, Hello, HelloBuilder, Pull, Reset, Rollback, WrapExtra, Route, RouteBuilder, RoutingTable,
 };
 pub use structs::{
     Bolt, BoltRef, Date, DateDuration, DateTime, DateTimeZoneId, DateTimeZoneIdRef, Duration,
     LegacyDateTime, LegacyDateTimeZoneId, LegacyDateTimeZoneIdRef, LocalDateTime, LocalTime, Node,
-    NodeRef, Path, PathRef, Point2D, Point3D, Relationship, RelationshipRef, Segment, Time, BoltServerAddress
+    NodeRef, Path, PathRef, Point2D, Point3D, Relationship, RelationshipRef, Segment, Time,
 };
 pub use summary::{Failure, Success, Summary};
 

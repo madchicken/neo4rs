@@ -19,7 +19,6 @@ use failure::Failure;
 use record::Record;
 use run::Run;
 pub(crate) use success::Success;
-use crate::connection::Routing;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BoltResponse {
@@ -111,6 +110,7 @@ pub struct RouteBuilder {
     db: Option<Database>,
 }
 
+#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
 impl RouteBuilder {
     pub fn new(routing: &Routing, bookmarks: Vec<&'static str>) -> Self {
         let opt: Option<BoltMap> = routing.clone().into();
