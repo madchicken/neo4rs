@@ -1,12 +1,10 @@
 use std::time::Duration;
-use async_trait::async_trait;
 use crate::auth::ConnectionTLSConfig;
 use crate::{config::Config, connection::{ConnectionInfo}, errors::{Error, Result}, Database};
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use log::info;
 use crate::connection::Connection;
-use crate::connection_provider::ConnectionProvider;
 
 pub type ConnectionPool = Pool<ConnectionManager>;
 pub type ManagedConnection = Object<ConnectionManager>;
@@ -45,8 +43,7 @@ impl Manager for ConnectionManager {
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         info!("creating new connection...");
-        let connection = Connection::new(&self.info).await?;
-        Ok(connection)
+        Connection::new(&self.info).await
     }
 
     async fn recycle(&self, obj: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {
@@ -70,16 +67,4 @@ pub async fn create_pool(config: &Config) -> Result<ConnectionPool> {
         .max_size(config.max_connections)
         .build()
         .expect("No timeouts configured"))
-}
-
-#[derive(Clone)]
-pub struct ConnectionPoolProvider {
-    pool: ConnectionPool,
-}
-
-#[async_trait]
-impl ConnectionProvider for ConnectionPoolProvider {
-    async fn get(&self) -> core::result::Result<ManagedConnection, Error> {
-        self.pool.get().await.map_err(|_| Error::ConnectionError)
-    }
 }

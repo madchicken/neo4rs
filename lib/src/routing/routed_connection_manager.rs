@@ -1,41 +1,47 @@
 use std::sync::{Arc};
-use deadpool::managed::{Manager, Metrics, RecycleResult};
+use std::time::Duration;
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use futures::lock::Mutex;
 use crate::bolt::{RouteBuilder};
 use crate::{Config, Error, RoutingTable};
-use crate::connection::Connection;
+use crate::pool::ManagedConnection;
 use crate::routing::connection_registry::ConnectionRegistry;
 use crate::routing::load_balancing::LoadBalancingStrategy;
 
+#[derive(Clone)]
 pub struct RoutedConnectionManager {
-    routing_table: Arc<RoutingTable>,
     load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
     registry: ConnectionRegistry,
-    bookmarks: Mutex<Vec<String>>,
-    routing_table_fetch_time: Mutex<u64>,
+    bookmarks: Arc<Mutex<Vec<String>>>,
+    backoff: ExponentialBackoff,
 }
 
 impl RoutedConnectionManager {
-    pub fn new(
+    pub async fn new(
         config: &Config,
         routing_table: Arc<RoutingTable>,
         load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
-    ) -> Self {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-        let registry = ConnectionRegistry::new(config, routing_table.clone());
-        RoutedConnectionManager {
-            routing_table,
+    ) -> Result<Self, Error> {
+        let registry = ConnectionRegistry::new(config, routing_table.clone()).await?;
+        let backoff = ExponentialBackoffBuilder::new()
+            .with_initial_interval(Duration::from_millis(1))
+            .with_randomization_factor(0.42)
+            .with_multiplier(2.0)
+            .with_max_elapsed_time(Some(Duration::from_secs(60)))
+            .build();
+
+        Ok(RoutedConnectionManager {
             load_balancing_strategy,
             registry,
-            bookmarks: Mutex::new(vec![]),
-            routing_table_fetch_time: Mutex::new(now),
-        }
+            bookmarks: Arc::new(Mutex::new(vec![])),
+            backoff,
+        })
     }
 
-    pub async fn refresh_routing_table(&mut self) -> Result<RoutingTable, Error> {
+    pub async fn refresh_routing_table(&self) -> Result<RoutingTable, Error> {
         if let Some(router) = self.load_balancing_strategy.select_router() {
-            if let Some(connection_manager) = self.registry.connections.get(&router) {
-                if let Ok(mut connection) = connection_manager.create().await {
+            if let Some(pool) = self.registry.connections.get(&router) {
+                if let Ok(mut connection) = pool.get().await {
                     let bookmarks = self.bookmarks.lock().await;
                     let bookmarks = bookmarks.iter().map(|b| b.as_str()).collect();
                     let route = RouteBuilder::new(router.addresses.first().unwrap().as_str(), bookmarks).build();
@@ -57,19 +63,28 @@ impl RoutedConnectionManager {
             Err(Error::RoutingTableRefreshFailed("No router available".to_string()))
         }
     }
-}
 
-impl Manager for RoutedConnectionManager {
-    type Type = Connection;
-    type Error = Error;
+    pub(crate) async fn get(&self, operation: Option<&str>) -> Result<ManagedConnection, Error> {
+        if self.registry.is_expired() {
+            let _rt = self.refresh_routing_table().await?;
+            // TODO: update registry here
+        }
 
-    async fn create(&self) -> Result<Self::Type, Self::Error> {
-        let router = self.load_balancing_strategy.select_reader().ok_or(Error::ServerUnavailableError("Unable to find an available reader server".to_string()))?;
-        let connection_manager = self.registry.connections.get(&router).unwrap();
-        connection_manager.create().await
+        if let Some(router) = match operation.unwrap_or("WRITE") {
+            "WRITE" => self.load_balancing_strategy.select_writer(),
+            _ => self.load_balancing_strategy.select_reader(),
+        } {
+            if let Some(pool) = self.registry.connections.get(&router) {
+                pool.value().get().await.map_err(Error::from)
+            } else {
+                Err(Error::RoutingTableRefreshFailed("No connection manager available".to_string()))
+            }
+        } else {
+            Err(Error::RoutingTableRefreshFailed("No router available".to_string()))
+        }
     }
 
-    async fn recycle(&self, obj: &mut Self::Type, _: &Metrics) -> RecycleResult<Self::Error> {
-        Ok(obj.reset().await?)
+    pub(crate) fn backoff(&self) -> ExponentialBackoff {
+        self.backoff.clone()
     }
 }

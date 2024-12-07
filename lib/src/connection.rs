@@ -1,7 +1,7 @@
 use crate::auth::ConnectionTLSConfig;
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
 use crate::bolt::{
-    ExpectedResponse, Hello, HelloBuilder, Message, MessageResponse, Reset, Summary, Route, RouteBuilder, RoutingTable
+    ExpectedResponse, Hello, HelloBuilder, Message, MessageResponse, Reset, Summary, Route, RoutingTable
 };
 #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
 use crate::messages::HelloBuilder;
@@ -41,12 +41,6 @@ impl Connection {
         let mut connection = Self::prepare(info).await?;
         let hello = info.to_hello(connection.version);
         connection.hello(hello).await?;
-        #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-        if info.is_routing() && connection.version >= Version::V4_3 {
-            let address = format!("{}:{}", info.host, info.port);
-            let builder = RouteBuilder::new(address.as_str(), vec![]);
-            connection.route(builder.build()).await?;
-        }
         Ok(connection)
     }
     
@@ -321,7 +315,7 @@ impl ConnectionInfo {
 
         let routing = if routing {
             warn!(concat!(
-                "This driver does not yet implement client-side routing. ",
+                "Client-side routing is in experimental mode.",
                 "It is possible that operations against a cluster (such as Aura) will fail."
             ));
             Routing::Yes(url.routing_context())

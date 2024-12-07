@@ -1,4 +1,4 @@
-mod round_robin_strategy;
+pub(crate) mod round_robin_strategy;
 
 use crate::bolt::Server;
 

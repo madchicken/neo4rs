@@ -474,7 +474,6 @@ mod types;
 mod version;
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
 mod routing;
-mod connection_provider;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};

@@ -1,13 +1,35 @@
+use std::sync::Arc;
 use std::time::Duration;
+use backoff::ExponentialBackoff;
+use crate::{config::{Config, ConfigBuilder, Database, LiveConfig}, errors::Result, pool::{create_pool, ConnectionPool}, query::Query, stream::DetachedRowStream, txn::Txn};
+use crate::bolt::RouteBuilder;
+use crate::connection::{Connection, ConnectionInfo};
+use crate::graph::ConnectionPoolManager::{Normal, Routed};
+use crate::pool::ManagedConnection;
+use crate::routing::RoundRobinStrategy;
+use crate::routing::RoutedConnectionManager;
 
-use crate::{
-    config::{Config, ConfigBuilder, Database, LiveConfig},
-    errors::Result,
-    pool::{create_pool, ConnectionPool},
-    query::Query,
-    stream::DetachedRowStream,
-    txn::Txn,
-};
+#[derive(Clone)]
+enum ConnectionPoolManager {
+    Routed(RoutedConnectionManager),
+    Normal(ConnectionPool),
+}
+
+impl ConnectionPoolManager {
+    async fn get(&self) -> Result<ManagedConnection> {
+        match self {
+            Routed(manager) => manager.get(Some("WRITE")).await,
+            Normal(pool) => pool.get().await.map_err(crate::Error::from),
+        }
+    }
+
+    fn backoff(&self) -> ExponentialBackoff {
+        match self {
+            Routed(manager) => manager.backoff(),
+            Normal(pool) => pool.manager().backoff(),
+        }
+    }
+}
 
 /// A neo4j database abstraction.
 /// This type can be cloned and shared across threads, internal resources
@@ -15,7 +37,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Graph {
     config: LiveConfig,
-    pool: ConnectionPool,
+    pool: ConnectionPoolManager,
 }
 
 /// Returns a [`Query`] which provides methods like [`Query::param`] to add parameters to the query
@@ -28,9 +50,19 @@ impl Graph {
     ///
     /// You can build a config using [`ConfigBuilder::default()`].
     pub async fn connect(config: Config) -> Result<Self> {
-        let pool = create_pool(&config).await?;
-        let config = config.into_live_config();
-        Ok(Graph { config, pool })
+        #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+        let info = ConnectionInfo::new(&config.uri, &config.user, &config.password, config.db.clone(), &config.tls_config)?;
+        if info.is_routing() {
+            let mut connection = Connection::new(&info).await?;
+            let address = format!("{}:{}", info.host, info.port);
+            let builder = RouteBuilder::new(address.as_str(), vec![]);
+            let rt = connection.route(builder.build()).await?;
+            let pool = Routed(RoutedConnectionManager::new(&config, Arc::new(rt.clone()), Arc::new(RoundRobinStrategy::new(rt))).await?);
+            Ok(Graph { config: config.into_live_config(), pool })
+        } else {
+            let pool = Normal(create_pool(&config).await?);
+            Ok(Graph { config: config.into_live_config(), pool })
+        }
     }
 
     /// Connects to the database with default configurations
@@ -102,13 +134,13 @@ impl Graph {
 
     async fn impl_run_on(&self, db: Option<Database>, q: Query) -> Result<()> {
         backoff::future::retry_notify(
-            self.pool.manager().backoff(),
+            self.pool.backoff(),
             || {
                 let pool = &self.pool;
                 let query = &q;
                 let db = db.as_deref();
                 async move {
-                    let mut connection = pool.get().await.map_err(crate::Error::from)?;
+                    let mut connection = pool.get().await?;
                     query.run_retryable(db, &mut connection).await
                 }
             },
@@ -139,14 +171,14 @@ impl Graph {
 
     async fn impl_execute_on(&self, db: Option<Database>, q: Query) -> Result<DetachedRowStream> {
         backoff::future::retry_notify(
-            self.pool.manager().backoff(),
+            self.pool.backoff(),
             || {
                 let pool = &self.pool;
                 let fetch_size = self.config.fetch_size;
                 let query = &q;
                 let db = db.as_deref();
                 async move {
-                    let connection = pool.get().await.map_err(crate::Error::from)?;
+                    let connection = pool.get().await?;
                     query.execute_retryable(db, fetch_size, connection).await
                 }
             },

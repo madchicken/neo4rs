@@ -13,7 +13,7 @@ pub struct RoundRobinStrategy {
 }
 
 impl RoundRobinStrategy {
-    pub fn new(cluster_routing_table: RoutingTable) -> Self {
+    pub(crate) fn new(cluster_routing_table: RoutingTable) -> Self {
         let readers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "READ").cloned().collect();
         let writers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "WRITE").cloned().collect();
         let routers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "ROUTE").cloned().collect();
@@ -51,11 +51,11 @@ impl LoadBalancingStrategy for RoundRobinStrategy {
     }
 
     fn select_writer(&self) -> Option<Server> {
-        Self::select(&self.writers, &self.reader_index)
+        Self::select(&self.writers, &self.writer_index)
     }
 
     fn select_router(&self) -> Option<Server> {
-        Self::select(&self.routers, &self.reader_index)
+        Self::select(&self.routers, &self.router_index)
     }
 }
 
