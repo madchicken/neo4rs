@@ -101,6 +101,14 @@ pub enum Error {
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     #[error("The request has been ignored by the server. This can happen if the server is under pressure or there was an issue with the memory.")]
     RequestIgnoredError,
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    #[error("{0}")]
+    RoutingTableRefreshFailed(String),
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    #[error("{0}")]
+    ServerUnavailableError(String),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

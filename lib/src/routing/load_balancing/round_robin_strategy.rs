@@ -6,21 +6,27 @@ use crate::routing::load_balancing::LoadBalancingStrategy;
 pub struct RoundRobinStrategy {
     readers: Vec<Server>,
     writers: Vec<Server>,
+    routers: Vec<Server>,
     reader_index: Mutex<usize>,
     writer_index: Mutex<usize>,
+    router_index: Mutex<usize>,
 }
 
 impl RoundRobinStrategy {
     pub fn new(cluster_routing_table: RoutingTable) -> Self {
         let readers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "READ").cloned().collect();
         let writers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "WRITE").cloned().collect();
+        let routers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "ROUTE").cloned().collect();
         let reader_index = Mutex::new(readers.len());
         let writer_index = Mutex::new(writers.len());
+        let router_index = Mutex::new(routers.len());
         RoundRobinStrategy {
             readers,
             writers,
+            routers,
             reader_index,
             writer_index,
+            router_index,
         }
     }
 
@@ -46,6 +52,10 @@ impl LoadBalancingStrategy for RoundRobinStrategy {
 
     fn select_writer(&self) -> Option<Server> {
         Self::select(&self.writers, &self.reader_index)
+    }
+
+    fn select_router(&self) -> Option<Server> {
+        Self::select(&self.routers, &self.reader_index)
     }
 }
 

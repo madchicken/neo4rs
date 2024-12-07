@@ -122,7 +122,7 @@ impl Connection {
     }
 
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-    async fn route(&mut self, route: Route<'_>) -> Result<RoutingTable> {
+    pub async fn route(&mut self, route: Route<'_>) -> Result<RoutingTable> {
         let route = self.send_recv_as(route).await?;
 
         match route {
