@@ -1,8 +1,8 @@
-mod least_connected_strategy;
+mod round_robin_strategy;
 
-use crate::connection::NeoUrl;
+use crate::bolt::Server;
 
 pub trait LoadBalancingStrategy {
-    fn select_reader(&self) -> Option<NeoUrl>;
-    fn select_writer(&self) -> Option<NeoUrl>;
+    fn select_reader(&self) -> Option<Server>;
+    fn select_writer(&self) -> Option<Server>;
 }

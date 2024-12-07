@@ -13,7 +13,7 @@ pub use discard::Discard;
 pub use extra::WrapExtra;
 pub use goodbye::Goodbye;
 pub use hello::{Hello, HelloBuilder};
-pub use route::{Route, RouteBuilder, RoutingTable};
+pub use route::{Route, RouteBuilder, RoutingTable, Server};
 pub use pull::Pull;
 pub use reset::Reset;
 pub use rollback::Rollback;

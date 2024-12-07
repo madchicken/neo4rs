@@ -19,6 +19,8 @@ use failure::Failure;
 use record::Record;
 use run::Run;
 pub(crate) use success::Success;
+#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+use crate::connection::Routing;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BoltResponse {
