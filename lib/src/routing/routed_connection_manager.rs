@@ -1,14 +1,14 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use dashmap::DashMap;
+use crate::bolt::Server;
 use crate::RoutingTable;
-use crate::connection::NeoUrl;
 use crate::pool::ConnectionManager;
 use crate::routing::load_balancing::LoadBalancingStrategy;
 
 pub struct RoutedConnectionManager {
     routing_table: Arc<Mutex<RoutingTable>>,
     load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
-    registry: HashMap<NeoUrl, ConnectionManager>,
+    registry: DashMap<Server, ConnectionManager>,
 }
 
 impl RoutedConnectionManager {
@@ -19,7 +19,7 @@ impl RoutedConnectionManager {
         RoutedConnectionManager {
             routing_table,
             load_balancing_strategy,
-            registry: HashMap::new(),
+            registry: DashMap::default(),
         }
     }
 }

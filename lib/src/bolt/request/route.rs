@@ -39,7 +39,7 @@ pub struct RoutingTable {
     pub(crate) servers: Vec<Server>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Hash)]
 pub struct Server {
     pub(crate) addresses: Vec<String>,
     pub(crate) role: String,
@@ -98,4 +98,39 @@ impl Display for RoutingTable {
             "RoutingTable {{ ttl: {}, db: {}, servers: {} }}", self.ttl, self.db.clone().unwrap_or("null".into()), self.servers.iter().map(|s| s.addresses.join(", ")).collect::<Vec<String>>().join(", ")
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bolt::MessageResponse;
+    use crate::bolt::request::route::Response;
+    use crate::packstream::bolt;
+
+    #[test]
+    fn parse() {
+        let data = bolt()
+            .tiny_map(1)
+            .tiny_string("rt")
+            .tiny_map(3)
+            .tiny_string("ttl")
+            .int64(1000)
+            .tiny_string("db")
+            .tiny_string("neo4j")
+            .tiny_string("servers")
+            .tiny_list(1)
+            .tiny_map(2)
+            .tiny_string("addresses")
+            .tiny_list(1)
+            .tiny_string("localhost:7687")
+            .tiny_string("role")
+            .tiny_string("ROUTE")
+            .build();
+
+        let response = Response::parse(data).unwrap();
+
+        assert_eq!(response.rt.ttl, 1000);
+        assert_eq!(response.rt.db.unwrap(), "neo4j");
+        assert_eq!(response.rt.servers.len(), 1);
+    }
+
 }

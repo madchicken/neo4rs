@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 use crate::bolt::Server;
 use crate::RoutingTable;
-use crate::connection::NeoUrl;
 use crate::routing::load_balancing::LoadBalancingStrategy;
 
 pub struct RoundRobinStrategy {

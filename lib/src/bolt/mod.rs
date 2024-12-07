@@ -14,7 +14,8 @@ mod structs;
 mod summary;
 
 pub use request::{
-    Commit, Discard, Goodbye, Hello, HelloBuilder, Pull, Reset, Rollback, WrapExtra, Route, RouteBuilder, RoutingTable, Server
+    Commit, Discard, Goodbye, Hello, HelloBuilder, Pull, Reset, Rollback, WrapExtra, Route,
+    RouteBuilder, RoutingTable, Server
 };
 pub use structs::{
     Bolt, BoltRef, Date, DateDuration, DateTime, DateTimeZoneId, DateTimeZoneIdRef, Duration,
