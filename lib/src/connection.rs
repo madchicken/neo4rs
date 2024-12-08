@@ -1,12 +1,19 @@
 use crate::auth::ConnectionTLSConfig;
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
 use crate::bolt::{
-    ExpectedResponse, Hello, HelloBuilder, Message, MessageResponse, Reset, Summary, Route, RoutingTable
+    ExpectedResponse, Hello, HelloBuilder, Message, MessageResponse, Reset, Route, RoutingTable,
+    Summary,
 };
 #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
 use crate::messages::HelloBuilder;
 
-use crate::{connection::stream::ConnectionStream, errors::{Error, Result}, messages::{BoltRequest, BoltResponse}, version::Version, BoltMap, BoltString, BoltType, Database};
+use crate::{
+    connection::stream::ConnectionStream,
+    errors::{Error, Result},
+    messages::{BoltRequest, BoltResponse},
+    version::Version,
+    BoltMap, BoltString, BoltType, Database,
+};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::{info, warn};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -43,7 +50,7 @@ impl Connection {
         connection.hello(hello).await?;
         Ok(connection)
     }
-    
+
     pub fn version(&self) -> Version {
         self.version
     }

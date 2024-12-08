@@ -8,19 +8,24 @@ mod pull;
 mod record;
 mod reset;
 mod rollback;
+mod route;
 mod run;
 mod success;
-mod route;
 
-use crate::{errors::{Error, Result}, types::{BoltMap, BoltWireFormat}, version::Version, BoltString, BoltType, Database};
+#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+use crate::connection::Routing;
+use crate::{
+    errors::{Error, Result},
+    types::{BoltMap, BoltWireFormat},
+    version::Version,
+    BoltString, BoltType, Database,
+};
 use begin::Begin;
 use bytes::Bytes;
 use failure::Failure;
 use record::Record;
 use run::Run;
 pub(crate) use success::Success;
-#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-use crate::connection::Routing;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BoltResponse {
@@ -217,8 +222,13 @@ impl BoltRequest {
     pub fn reset() -> BoltRequest {
         BoltRequest::Reset(reset::Reset::new())
     }
-    
-    pub fn route(routing: BoltMap, bookmarks: Vec<&str>, db: Option<Database>, version: Version) -> BoltRequest {
+
+    pub fn route(
+        routing: BoltMap,
+        bookmarks: Vec<&str>,
+        db: Option<Database>,
+        version: Version,
+    ) -> BoltRequest {
         if version >= Version::V4_3 {
             BoltRequest::Route(route::Route::new(routing, bookmarks, db))
         } else {

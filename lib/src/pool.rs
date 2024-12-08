@@ -1,10 +1,15 @@
-use std::time::Duration;
 use crate::auth::ConnectionTLSConfig;
-use crate::{config::Config, connection::{ConnectionInfo}, errors::{Error, Result}, Database};
+use crate::connection::Connection;
+use crate::{
+    config::Config,
+    connection::ConnectionInfo,
+    errors::{Error, Result},
+    Database,
+};
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use log::info;
-use crate::connection::Connection;
+use std::time::Duration;
 
 pub type ConnectionPool = Pool<ConnectionManager>;
 pub type ManagedConnection = Object<ConnectionManager>;

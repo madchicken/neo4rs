@@ -1,25 +1,40 @@
-use std::sync::Mutex;
 use crate::bolt::Server;
-use crate::RoutingTable;
 use crate::routing::load_balancing::LoadBalancingStrategy;
+use crate::RoutingTable;
+use std::sync::atomic::AtomicUsize;
 
 pub struct RoundRobinStrategy {
     readers: Vec<Server>,
     writers: Vec<Server>,
     routers: Vec<Server>,
-    reader_index: Mutex<usize>,
-    writer_index: Mutex<usize>,
-    router_index: Mutex<usize>,
+    reader_index: AtomicUsize,
+    writer_index: AtomicUsize,
+    router_index: AtomicUsize,
 }
 
 impl RoundRobinStrategy {
     pub(crate) fn new(cluster_routing_table: RoutingTable) -> Self {
-        let readers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "READ").cloned().collect();
-        let writers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "WRITE").cloned().collect();
-        let routers: Vec<Server> = cluster_routing_table.servers.iter().filter(|s| s.role == "ROUTE").cloned().collect();
-        let reader_index = Mutex::new(readers.len());
-        let writer_index = Mutex::new(writers.len());
-        let router_index = Mutex::new(routers.len());
+        let readers: Vec<Server> = cluster_routing_table
+            .servers
+            .iter()
+            .filter(|s| s.role == "READ")
+            .cloned()
+            .collect();
+        let writers: Vec<Server> = cluster_routing_table
+            .servers
+            .iter()
+            .filter(|s| s.role == "WRITE")
+            .cloned()
+            .collect();
+        let routers: Vec<Server> = cluster_routing_table
+            .servers
+            .iter()
+            .filter(|s| s.role == "ROUTE")
+            .cloned()
+            .collect();
+        let reader_index = AtomicUsize::new(readers.len());
+        let writer_index = AtomicUsize::new(writers.len());
+        let router_index = AtomicUsize::new(routers.len());
         RoundRobinStrategy {
             readers,
             writers,
@@ -30,17 +45,21 @@ impl RoundRobinStrategy {
         }
     }
 
-    fn select(servers: &[Server], index_mutex: &Mutex<usize>) -> Option<Server> {
+    fn select(servers: &[Server], index: &AtomicUsize) -> Option<Server> {
         if servers.is_empty() {
             return None;
         }
 
-        let mut index = index_mutex.lock().unwrap();
-        if index.checked_sub(1).is_none() {
-            *index = servers.len();
-        }
-        *index -= 1;
-        let server = servers[*index].clone();
+        index
+            .compare_exchange(
+                0,
+                servers.len(),
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .ok();
+        let i = index.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let server = servers[i].clone();
         Some(server)
     }
 }

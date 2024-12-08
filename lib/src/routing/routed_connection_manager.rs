@@ -1,12 +1,13 @@
-use std::sync::{Arc};
-use std::time::Duration;
-use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use futures::lock::Mutex;
-use crate::bolt::{RouteBuilder};
-use crate::{Config, Error, RoutingTable};
+use crate::bolt::RouteBuilder;
 use crate::pool::ManagedConnection;
 use crate::routing::connection_registry::ConnectionRegistry;
 use crate::routing::load_balancing::LoadBalancingStrategy;
+use crate::{Config, Error, RoutingTable};
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
+use futures::lock::Mutex;
+use log::info;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct RoutedConnectionManager {
@@ -15,6 +16,8 @@ pub struct RoutedConnectionManager {
     bookmarks: Arc<Mutex<Vec<String>>>,
     backoff: ExponentialBackoff,
 }
+
+pub const WRITE_OPERATION: &'static str = "WRITE";
 
 impl RoutedConnectionManager {
     pub async fn new(
@@ -40,47 +43,59 @@ impl RoutedConnectionManager {
 
     pub async fn refresh_routing_table(&self) -> Result<RoutingTable, Error> {
         if let Some(router) = self.load_balancing_strategy.select_router() {
-            if let Some(pool) = self.registry.connections.get(&router) {
+            if let Some(pool) = self.registry.connections.read().unwrap().get(&router) {
                 if let Ok(mut connection) = pool.get().await {
                     let bookmarks = self.bookmarks.lock().await;
                     let bookmarks = bookmarks.iter().map(|b| b.as_str()).collect();
-                    let route = RouteBuilder::new(router.addresses.first().unwrap().as_str(), bookmarks).build();
+                    let route =
+                        RouteBuilder::new(router.addresses.first().unwrap().as_str(), bookmarks)
+                            .build();
                     match connection.route(route).await {
-                        Ok(rt) => {
-                            Ok(rt)
-                        }
-                        Err(e) => {
-                            Err(Error::RoutingTableRefreshFailed(format!("Failed to refresh routing table from router {}: {}", router.addresses.first().unwrap(), e)))
-                        }
+                        Ok(rt) => Ok(rt),
+                        Err(e) => Err(Error::RoutingTableRefreshFailed(format!(
+                            "Failed to refresh routing table from router {}: {}",
+                            router.addresses.first().unwrap(),
+                            e
+                        ))),
                     }
                 } else {
-                    Err(Error::RoutingTableRefreshFailed(format!("Failed to create connection to router {}", router.addresses.first().unwrap())))
+                    Err(Error::RoutingTableRefreshFailed(format!(
+                        "Failed to create connection to router {}",
+                        router.addresses.first().unwrap()
+                    )))
                 }
             } else {
-                Err(Error::RoutingTableRefreshFailed("No connection manager available".to_string()))
+                Err(Error::RoutingTableRefreshFailed(
+                    "No connection manager available".to_string(),
+                ))
             }
         } else {
-            Err(Error::RoutingTableRefreshFailed("No router available".to_string()))
+            Err(Error::RoutingTableRefreshFailed(
+                "No router available".to_string(),
+            ))
         }
     }
 
     pub(crate) async fn get(&self, operation: Option<&str>) -> Result<ManagedConnection, Error> {
+        // We probably need to do this in a more efficient way, since this will block the request of a connection
+        // while we refresh the routing table. We should probably have a separate thread that refreshes the routing
         if self.registry.is_expired() {
-            let _rt = self.refresh_routing_table().await?;
-            // TODO: update registry here
+            info!("Routing table expired, refreshing...");
+            let rt = self.refresh_routing_table().await?;
+            self.registry.update(rt).await?;
         }
 
-        if let Some(router) = match operation.unwrap_or("WRITE") {
-            "WRITE" => self.load_balancing_strategy.select_writer(),
+        if let Some(router) = match operation.unwrap_or(WRITE_OPERATION) {
+            WRITE_OPERATION => self.load_balancing_strategy.select_writer(),
             _ => self.load_balancing_strategy.select_reader(),
         } {
-            if let Some(pool) = self.registry.connections.get(&router) {
-                pool.value().get().await.map_err(Error::from)
-            } else {
-                Err(Error::RoutingTableRefreshFailed("No connection manager available".to_string()))
-            }
+            let guard = self.registry.connections.read().unwrap();
+            let pool = guard.get(&router).unwrap();
+            Ok(pool.get().await?)
         } else {
-            Err(Error::RoutingTableRefreshFailed("No router available".to_string()))
+            Err(Error::RoutingTableRefreshFailed(
+                "No router available".to_string(),
+            ))
         }
     }
 

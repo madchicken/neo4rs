@@ -465,6 +465,8 @@ mod messages;
 mod packstream;
 mod pool;
 mod query;
+#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+mod routing;
 mod row;
 mod stream;
 #[cfg(feature = "unstable-result-summary")]
@@ -472,8 +474,6 @@ pub mod summary;
 mod txn;
 mod types;
 mod version;
-#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-mod routing;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};
@@ -499,4 +499,4 @@ pub use crate::version::Version;
 pub(crate) use messages::Success;
 
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-pub(crate) use crate::bolt::{RoutingTable};
+pub(crate) use crate::bolt::RoutingTable;

@@ -13,7 +13,12 @@ impl Route {
     pub fn new(routing: BoltMap, bookmarks: Vec<&str>, db: Option<Database>) -> Self {
         Route {
             routing,
-            bookmarks: BoltList::from(bookmarks.into_iter().map(|b| BoltType::String(BoltString::new(b))).collect::<Vec<BoltType>>()),
+            bookmarks: BoltList::from(
+                bookmarks
+                    .into_iter()
+                    .map(|b| BoltType::String(BoltString::new(b)))
+                    .collect::<Vec<BoltType>>(),
+            ),
             db: BoltString::from(db.map(|d| d.to_string()).unwrap_or("".to_string())),
         }
     }
@@ -62,12 +67,13 @@ mod tests {
 
     #[test]
     fn should_serialize_route() {
-        let opt: Option<BoltMap> = Routing::Yes(vec![("address".into(), "localhost".into())].into_iter().collect()).into();
-        let route = Route::new(
-            opt.unwrap(),
-            vec![],
-            None,
-        );
+        let opt: Option<BoltMap> = Routing::Yes(
+            vec![("address".into(), "localhost".into())]
+                .into_iter()
+                .collect(),
+        )
+        .into();
+        let route = Route::new(opt.unwrap(), vec![], None);
 
         let bytes: Bytes = route.into_bytes(Version::V4_1).unwrap();
 

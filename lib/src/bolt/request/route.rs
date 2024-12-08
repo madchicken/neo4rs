@@ -1,7 +1,7 @@
-use std::fmt::{format, Display, Formatter};
-use serde::{Deserialize, Serialize};
 use crate::bolt::{ExpectedResponse, Hello, Summary};
 use crate::connection::NeoUrl;
+use serde::{Deserialize, Serialize};
+use std::fmt::{format, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Route<'a> {
@@ -9,7 +9,7 @@ pub struct Route<'a> {
     bookmarks: Vec<&'a str>,
     db: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    extra: Option<Extra<'a>,>
+    extra: Option<Extra<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -95,15 +95,22 @@ impl Display for RoutingTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RoutingTable {{ ttl: {}, db: {}, servers: {} }}", self.ttl, self.db.clone().unwrap_or("null".into()), self.servers.iter().map(|s| s.addresses.join(", ")).collect::<Vec<String>>().join(", ")
+            "RoutingTable {{ ttl: {}, db: {}, servers: {} }}",
+            self.ttl,
+            self.db.clone().unwrap_or("null".into()),
+            self.servers
+                .iter()
+                .map(|s| s.addresses.join(", "))
+                .collect::<Vec<String>>()
+                .join(", ")
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::bolt::MessageResponse;
     use crate::bolt::request::route::Response;
+    use crate::bolt::MessageResponse;
     use crate::packstream::bolt;
 
     #[test]
@@ -132,5 +139,4 @@ mod tests {
         assert_eq!(response.rt.db.unwrap(), "neo4j");
         assert_eq!(response.rt.servers.len(), 1);
     }
-
 }

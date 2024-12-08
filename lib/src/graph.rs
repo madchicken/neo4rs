@@ -1,13 +1,20 @@
-use std::sync::Arc;
-use std::time::Duration;
-use backoff::ExponentialBackoff;
-use crate::{config::{Config, ConfigBuilder, Database, LiveConfig}, errors::Result, pool::{create_pool, ConnectionPool}, query::Query, stream::DetachedRowStream, txn::Txn};
 use crate::bolt::RouteBuilder;
 use crate::connection::{Connection, ConnectionInfo};
 use crate::graph::ConnectionPoolManager::{Normal, Routed};
 use crate::pool::ManagedConnection;
 use crate::routing::RoundRobinStrategy;
 use crate::routing::RoutedConnectionManager;
+use crate::{
+    config::{Config, ConfigBuilder, Database, LiveConfig},
+    errors::Result,
+    pool::{create_pool, ConnectionPool},
+    query::Query,
+    stream::DetachedRowStream,
+    txn::Txn,
+};
+use backoff::ExponentialBackoff;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 enum ConnectionPoolManager {
@@ -51,17 +58,36 @@ impl Graph {
     /// You can build a config using [`ConfigBuilder::default()`].
     pub async fn connect(config: Config) -> Result<Self> {
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-        let info = ConnectionInfo::new(&config.uri, &config.user, &config.password, config.db.clone(), &config.tls_config)?;
+        let info = ConnectionInfo::new(
+            &config.uri,
+            &config.user,
+            &config.password,
+            config.db.clone(),
+            &config.tls_config,
+        )?;
         if info.is_routing() {
             let mut connection = Connection::new(&info).await?;
             let address = format!("{}:{}", info.host, info.port);
             let builder = RouteBuilder::new(address.as_str(), vec![]);
             let rt = connection.route(builder.build()).await?;
-            let pool = Routed(RoutedConnectionManager::new(&config, Arc::new(rt.clone()), Arc::new(RoundRobinStrategy::new(rt))).await?);
-            Ok(Graph { config: config.into_live_config(), pool })
+            let pool = Routed(
+                RoutedConnectionManager::new(
+                    &config,
+                    Arc::new(rt.clone()),
+                    Arc::new(RoundRobinStrategy::new(rt)),
+                )
+                .await?,
+            );
+            Ok(Graph {
+                config: config.into_live_config(),
+                pool,
+            })
         } else {
             let pool = Normal(create_pool(&config).await?);
-            Ok(Graph { config: config.into_live_config(), pool })
+            Ok(Graph {
+                config: config.into_live_config(),
+                pool,
+            })
         }
     }
 
