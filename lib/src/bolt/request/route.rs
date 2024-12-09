@@ -42,7 +42,7 @@ pub struct RoutingTable {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Hash)]
 pub struct Server {
     pub(crate) addresses: Vec<String>,
-    pub(crate) role: String,
+    pub(crate) role: String, // TODO: use an enum here
 }
 
 impl<'a> ExpectedResponse for Route<'a> {

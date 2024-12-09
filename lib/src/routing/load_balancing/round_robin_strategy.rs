@@ -59,7 +59,7 @@ impl RoundRobinStrategy {
             )
             .ok();
         let i = index.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        let server = servers[i].clone();
+        let server = servers[i - 1].clone();
         Some(server)
     }
 }
