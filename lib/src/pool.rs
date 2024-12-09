@@ -1,15 +1,14 @@
+use std::time::Duration;
+
 use crate::auth::ConnectionTLSConfig;
-use crate::connection::Connection;
 use crate::{
     config::Config,
-    connection::ConnectionInfo,
+    connection::{Connection, ConnectionInfo},
     errors::{Error, Result},
-    Database,
 };
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use log::info;
-use std::time::Duration;
 
 pub type ConnectionPool = Pool<ConnectionManager>;
 pub type ManagedConnection = Object<ConnectionManager>;
@@ -24,10 +23,9 @@ impl ConnectionManager {
         uri: &str,
         user: &str,
         password: &str,
-        db: Option<Database>,
         tls_config: &ConnectionTLSConfig,
     ) -> Result<Self> {
-        let info = ConnectionInfo::new(uri, user, password, db, tls_config)?;
+        let info = ConnectionInfo::new(uri, user, password, tls_config)?;
         let backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(Duration::from_millis(1))
             .with_randomization_factor(0.42)
@@ -61,7 +59,6 @@ pub async fn create_pool(config: &Config) -> Result<ConnectionPool> {
         &config.uri,
         &config.user,
         &config.password,
-        config.db.clone(),
         &config.tls_config,
     )?;
     info!(

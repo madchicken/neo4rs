@@ -8,17 +8,14 @@ mod pull;
 mod record;
 mod reset;
 mod rollback;
-mod route;
 mod run;
 mod success;
 
-#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-use crate::connection::Routing;
 use crate::{
     errors::{Error, Result},
     types::{BoltMap, BoltWireFormat},
     version::Version,
-    BoltString, BoltType, Database,
+    BoltString, BoltType,
 };
 use begin::Begin;
 use bytes::Bytes;
@@ -69,7 +66,6 @@ pub enum BoltRequest {
         deprecated(since = "0.9.0", note = "Use `crate::bolt::Reset` instead.")
     )]
     Reset(reset::Reset),
-    Route(route::Route),
 }
 
 #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
@@ -107,35 +103,6 @@ impl HelloBuilder {
             routing,
         } = self;
         BoltRequest::hello(agent, principal, credentials, routing, version)
-    }
-}
-
-#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-pub struct RouteBuilder {
-    routing: BoltMap,
-    bookmarks: Vec<&'static str>,
-    db: Option<Database>,
-}
-
-#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
-impl RouteBuilder {
-    pub fn new(routing: &Routing, bookmarks: Vec<&'static str>) -> Self {
-        let opt: Option<BoltMap> = routing.clone().into();
-        Self {
-            routing: opt.unwrap_or_default(),
-            bookmarks,
-            db: None,
-        }
-    }
-
-    pub fn with_db(&mut self, db: Database) -> &mut Self {
-        self.db = Some(db);
-        self
-    }
-
-    #[cfg_attr(feature = "unstable-bolt-protocol-impl-v2", allow(deprecated))]
-    pub fn build(self, version: Version) -> BoltRequest {
-        BoltRequest::route(self.routing, self.bookmarks, self.db, version)
     }
 }
 
@@ -222,19 +189,6 @@ impl BoltRequest {
     pub fn reset() -> BoltRequest {
         BoltRequest::Reset(reset::Reset::new())
     }
-
-    pub fn route(
-        routing: BoltMap,
-        bookmarks: Vec<&str>,
-        db: Option<Database>,
-        version: Version,
-    ) -> BoltRequest {
-        if version >= Version::V4_3 {
-            BoltRequest::Route(route::Route::new(routing, bookmarks, db))
-        } else {
-            panic!("Route message is not supported in version {:?}", version);
-        }
-    }
 }
 
 impl BoltRequest {
@@ -249,7 +203,6 @@ impl BoltRequest {
             BoltRequest::Commit(commit) => commit.into_bytes(version)?,
             BoltRequest::Rollback(rollback) => rollback.into_bytes(version)?,
             BoltRequest::Reset(reset) => reset.into_bytes(version)?,
-            BoltRequest::Route(route) => route.into_bytes(version)?,
         };
         Ok(bytes)
     }

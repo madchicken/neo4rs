@@ -497,6 +497,3 @@ pub use crate::types::{
 pub use crate::version::Version;
 
 pub(crate) use messages::Success;
-
-#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-pub(crate) use crate::bolt::RoutingTable;

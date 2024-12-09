@@ -1,9 +1,15 @@
-use crate::bolt::RouteBuilder;
-use crate::connection::{Connection, ConnectionInfo};
-use crate::graph::ConnectionPoolManager::{Normal, Routed};
+#[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+use {
+    crate::bolt::RouteBuilder,
+    crate::connection::{Connection, ConnectionInfo, Routing},
+    crate::graph::ConnectionPoolManager::Routed,
+    crate::routing::{RoundRobinStrategy, RoutedConnectionManager},
+    log::info,
+    std::sync::Arc,
+};
+
+use crate::graph::ConnectionPoolManager::Normal;
 use crate::pool::ManagedConnection;
-use crate::routing::RoundRobinStrategy;
-use crate::routing::RoutedConnectionManager;
 use crate::{
     config::{Config, ConfigBuilder, Database, LiveConfig},
     errors::Result,
@@ -13,11 +19,11 @@ use crate::{
     txn::Txn,
 };
 use backoff::ExponentialBackoff;
-use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone)]
 enum ConnectionPoolManager {
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     Routed(RoutedConnectionManager),
     Normal(ConnectionPool),
 }
@@ -25,6 +31,7 @@ enum ConnectionPoolManager {
 impl ConnectionPoolManager {
     async fn get(&self) -> Result<ManagedConnection> {
         match self {
+            #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
             Routed(manager) => manager.get(Some("WRITE")).await,
             Normal(pool) => pool.get().await.map_err(crate::Error::from),
         }
@@ -32,6 +39,7 @@ impl ConnectionPoolManager {
 
     fn backoff(&self) -> ExponentialBackoff {
         match self {
+            #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
             Routed(manager) => manager.backoff(),
             Normal(pool) => pool.manager().backoff(),
         }
@@ -58,31 +66,41 @@ impl Graph {
     /// You can build a config using [`ConfigBuilder::default()`].
     pub async fn connect(config: Config) -> Result<Self> {
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-        let info = ConnectionInfo::new(
-            &config.uri,
-            &config.user,
-            &config.password,
-            config.db.clone(),
-            &config.tls_config,
-        )?;
-        if info.is_routing() {
-            let mut connection = Connection::new(&info).await?;
-            let address = format!("{}:{}", info.host, info.port);
-            let builder = RouteBuilder::new(address.as_str(), vec![]);
-            let rt = connection.route(builder.build()).await?;
-            let pool = Routed(
-                RoutedConnectionManager::new(
-                    &config,
-                    Arc::new(rt.clone()),
-                    Arc::new(RoundRobinStrategy::new(rt)),
-                )
-                .await?,
-            );
-            Ok(Graph {
-                config: config.into_live_config(),
-                pool,
-            })
-        } else {
+        {
+            let info = ConnectionInfo::new(
+                &config.uri,
+                &config.user,
+                &config.password,
+                &config.tls_config,
+            )?;
+            if matches!(info.routing, Routing::Yes(_)) {
+                let mut connection = Connection::new(&info).await?;
+                let address = format!("{}:{}", info.host, info.port);
+                let builder = RouteBuilder::new(address.as_str(), vec![]);
+                let rt = connection.route(builder.build()).await?;
+                info!("Connected to routing server: {:?}", rt);
+                let pool = Routed(
+                    RoutedConnectionManager::new(
+                        &config,
+                        Arc::new(rt.clone()),
+                        Arc::new(RoundRobinStrategy::new(rt)),
+                    )
+                    .await?,
+                );
+                Ok(Graph {
+                    config: config.into_live_config(),
+                    pool,
+                })
+            } else {
+                let pool = Normal(create_pool(&config).await?);
+                Ok(Graph {
+                    config: config.into_live_config(),
+                    pool,
+                })
+            }
+        }
+        #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+        {
             let pool = Normal(create_pool(&config).await?);
             Ok(Graph {
                 config: config.into_live_config(),

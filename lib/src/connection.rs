@@ -12,7 +12,7 @@ use crate::{
     errors::{Error, Result},
     messages::{BoltRequest, BoltResponse},
     version::Version,
-    BoltMap, BoltString, BoltType, Database,
+    BoltMap, BoltString, BoltType,
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use log::{info, warn};
@@ -255,7 +255,6 @@ impl Connection {
 pub(crate) struct ConnectionInfo {
     pub user: Arc<str>,
     pub password: Arc<str>,
-    pub db: Option<Database>,
     pub host: Host<Arc<str>>,
     pub port: u16,
     pub routing: Routing,
@@ -267,7 +266,6 @@ impl Debug for ConnectionInfo {
         f.debug_struct("ConnectionInfo")
             .field("user", &self.user)
             .field("password", &"***")
-            .field("db", &self.db)
             .field("host", &self.host)
             .field("port", &self.port)
             .field("routing", &self.routing)
@@ -301,7 +299,6 @@ impl ConnectionInfo {
         uri: &str,
         user: &str,
         password: &str,
-        db: Option<Database>,
         tls_config: &ConnectionTLSConfig,
     ) -> Result<Self> {
         let mut url = NeoUrl::parse(uri)?;
@@ -341,7 +338,6 @@ impl ConnectionInfo {
         Ok(Self {
             user: user.into(),
             password: password.into(),
-            db: db.clone(),
             host,
             port: url.port(),
             encryption,
@@ -404,10 +400,6 @@ impl ConnectionInfo {
         HelloBuilder::new(&*self.user, &*self.password)
             .with_routing(self.routing.clone())
             .build(version)
-    }
-
-    pub(crate) fn is_routing(&self) -> bool {
-        matches!(self.routing, Routing::Yes(_))
     }
 
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]

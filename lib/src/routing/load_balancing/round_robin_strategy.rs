@@ -1,6 +1,6 @@
+use crate::bolt::RoutingTable;
 use crate::bolt::Server;
 use crate::routing::load_balancing::LoadBalancingStrategy;
-use crate::RoutingTable;
 use std::sync::atomic::AtomicUsize;
 
 pub struct RoundRobinStrategy {

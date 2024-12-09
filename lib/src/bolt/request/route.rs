@@ -1,24 +1,24 @@
 use crate::bolt::{ExpectedResponse, Hello, Summary};
 use crate::connection::NeoUrl;
+use serde::ser::SerializeStructVariant;
 use serde::{Deserialize, Serialize};
 use std::fmt::{format, Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route<'a> {
     routing: Routing<'a>,
     bookmarks: Vec<&'a str>,
-    db: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    db: Option<String>,
     extra: Option<Extra<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Routing<'a> {
+    address: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     policy: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     region: Option<&'a str>,
-    address: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -52,7 +52,7 @@ impl<'a> ExpectedResponse for Route<'a> {
 pub struct RouteBuilder<'a> {
     routing: Routing<'a>,
     bookmarks: Vec<&'a str>,
-    db: Option<&'a str>,
+    db: Option<String>,
     extra: Option<Extra<'a>>,
 }
 
@@ -71,14 +71,18 @@ impl<'a> RouteBuilder<'a> {
         }
     }
 
-    pub fn db(&mut self, db: &'a str) -> &mut Self {
-        self.db = Some(db);
-        self
+    pub fn with_db(self, db: String) -> Self {
+        Self {
+            db: Some(db),
+            ..self
+        }
     }
 
-    pub fn extra(&mut self, extra: Extra<'a>) -> &mut Self {
-        self.extra = Some(extra);
-        self
+    pub fn with_extra(self, extra: Extra<'a>) -> Self {
+        Self {
+            extra: Some(extra),
+            ..self
+        }
     }
 
     pub fn build(self) -> Route<'a> {
@@ -107,11 +111,44 @@ impl Display for RoutingTable {
     }
 }
 
+impl<'a> Serialize for Route<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut structure = serializer.serialize_struct_variant("Request", 0x66, "ROUTE", 3)?;
+        structure.serialize_field("routing", &self.routing)?;
+        structure.serialize_field("bookmarks", &self.bookmarks)?;
+        structure.serialize_field("db", &self.db)?;
+        structure.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::bolt::request::route::Response;
-    use crate::bolt::MessageResponse;
+    use crate::bolt::{Message, MessageResponse, Route, RouteBuilder};
     use crate::packstream::bolt;
+
+    #[test]
+    fn serialize() {
+        let route = RouteBuilder::new("localhost:7687", vec!["bookmark"])
+            .with_db("neo4j".to_string())
+            .build();
+        let bytes = route.to_bytes().unwrap();
+
+        let expected = bolt()
+            .structure(3, 0x66)
+            .tiny_map(1)
+            .tiny_string("address")
+            .tiny_string("localhost:7687")
+            .tiny_list(1)
+            .tiny_string("bookmark")
+            .tiny_string("neo4j")
+            .build();
+
+        assert_eq!(bytes, expected);
+    }
 
     #[test]
     fn parse() {
