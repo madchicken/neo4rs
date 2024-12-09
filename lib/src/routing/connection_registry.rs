@@ -1,18 +1,17 @@
-use std::collections::HashMap;
 use crate::bolt::{RoutingTable, Server};
 use crate::pool::{create_pool, ConnectionPool};
 use crate::{Config, Error};
-use std::sync::{Arc};
-use futures::lock::Mutex;
+use dashmap::DashMap;
+use std::sync::Arc;
 
-pub type Registry = HashMap<Server, ConnectionPool>;
+pub type Registry = DashMap<Server, ConnectionPool>;
 
 #[derive(Clone)]
 pub(crate) struct ConnectionRegistry {
     config: Config,
     creation_time: u64,
     ttl: u64,
-    pub(crate) connections: Arc<Mutex<Registry>>, // Arc is needed for Clone
+    pub(crate) connections: Registry, // Arc is needed for Clone
 }
 
 impl ConnectionRegistry {
@@ -29,7 +28,7 @@ impl ConnectionRegistry {
                 .unwrap()
                 .as_secs(),
             ttl,
-            connections: Arc::new(Mutex::new(connections)),
+            connections,
         })
     }
 
@@ -37,7 +36,7 @@ impl ConnectionRegistry {
         config: &Config,
         routing_table: Arc<RoutingTable>,
     ) -> Result<Registry, Error> {
-        let mut registry = HashMap::new();
+        let registry = DashMap::new();
         let servers = routing_table.servers.clone();
         for server in servers.iter() {
             registry.insert(server.clone(), create_pool(config).await?);
@@ -54,7 +53,7 @@ impl ConnectionRegistry {
     }
 
     pub(crate) async fn update(&self, routing_table: RoutingTable) -> Result<(), Error> {
-        let mut registry = self.connections.lock().await;
+        let registry = &self.connections;
         let servers = routing_table.servers.clone();
         for server in servers.iter() {
             if registry.contains_key(server) {
@@ -65,8 +64,11 @@ impl ConnectionRegistry {
         registry.retain(|k, _| !servers.contains(k));
         Ok(())
     }
+    /// Retrieve the pool for a specific server.
+    pub fn get_pool(&self, server: &Server) -> Option<ConnectionPool> {
+        self.connections.get(server).map(|entry| entry.clone())
+    }
 }
-
 
 const _: () = {
     const fn assert_send_sync<T: ?Sized + Send + Sync>() {}

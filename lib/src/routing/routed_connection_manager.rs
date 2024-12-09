@@ -26,12 +26,14 @@ impl RoutedConnectionManager {
         load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
     ) -> Result<Self, Error> {
         let registry = Arc::new(ConnectionRegistry::new(config, routing_table.clone()).await?);
-        let backoff = Arc::new(ExponentialBackoffBuilder::new()
-            .with_initial_interval(Duration::from_millis(1))
-            .with_randomization_factor(0.42)
-            .with_multiplier(2.0)
-            .with_max_elapsed_time(Some(Duration::from_secs(60)))
-            .build());
+        let backoff = Arc::new(
+            ExponentialBackoffBuilder::new()
+                .with_initial_interval(Duration::from_millis(1))
+                .with_randomization_factor(0.42)
+                .with_multiplier(2.0)
+                .with_max_elapsed_time(Some(Duration::from_secs(60)))
+                .build(),
+        );
 
         Ok(RoutedConnectionManager {
             load_balancing_strategy,
@@ -43,7 +45,7 @@ impl RoutedConnectionManager {
 
     pub async fn refresh_routing_table(&self) -> Result<RoutingTable, Error> {
         if let Some(router) = self.load_balancing_strategy.select_router() {
-            if let Some(pool) = self.registry.connections.lock().await.get(&router) {
+            if let Some(pool) = self.registry.get_pool(&router) {
                 if let Ok(mut connection) = pool.get().await {
                     let bookmarks = self.bookmarks.lock().await;
                     let bookmarks = bookmarks.iter().map(|b| b.as_str()).collect();
@@ -89,9 +91,13 @@ impl RoutedConnectionManager {
             WRITE_OPERATION => self.load_balancing_strategy.select_writer(),
             _ => self.load_balancing_strategy.select_reader(),
         } {
-            let guard = self.registry.connections.lock().await;
-            let pool = guard.get(&router).unwrap();
-            Ok(pool.get().await?)
+            if let Some(pool) = self.registry.get_pool(&router) {
+                Ok(pool.get().await?)
+            } else {
+                Err(Error::RoutingTableRefreshFailed(
+                    "No connection manager available".to_string(),
+                ))
+            }
         } else {
             Err(Error::RoutingTableRefreshFailed(
                 "No router available".to_string(),
