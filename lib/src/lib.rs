@@ -495,9 +495,21 @@ pub use crate::types::{
     BoltPoint2D, BoltPoint3D, BoltRelation, BoltString, BoltTime, BoltType, BoltUnboundedRelation,
 };
 pub use crate::version::Version;
+use std::fmt::Display;
 
 pub(crate) use messages::Success;
-pub(crate) enum Operation {
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Operation {
     Read,
     Write,
+}
+
+impl Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operation::Read => write!(f, "READ"),
+            Operation::Write => write!(f, "WRITE"),
+        }
+    }
 }

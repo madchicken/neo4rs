@@ -17,8 +17,6 @@ pub struct RoutedConnectionManager {
     backoff: Arc<ExponentialBackoff>,
 }
 
-pub const WRITE_OPERATION: &'static str = "WRITE";
-
 impl RoutedConnectionManager {
     pub async fn new(
         config: &Config,
@@ -100,22 +98,24 @@ impl RoutedConnectionManager {
             .update_if_expired(|| self.refresh_routing_table())
             .await?;
 
-        if let Some(router) = match operation.unwrap_or(Operation::Write) {
+        let op = operation.unwrap_or(Operation::Write);
+        while let Some(server) = match op {
             Operation::Write => self.load_balancing_strategy.select_writer(),
             _ => self.load_balancing_strategy.select_reader(),
         } {
-            if let Some(pool) = self.registry.get_pool(&router) {
-                Ok(pool.get().await?)
+            if let Some(pool) = self.registry.get_pool(&server) {
+                return Ok(pool.get().await?);
             } else {
-                Err(Error::RoutingTableRefreshFailed(
-                    "No connection manager available".to_string(),
-                ))
+                error!(
+                    "No connection manager available for router `{}` in the registry",
+                    server.addresses.first().unwrap()
+                );
+                self.registry.mark_unavailable(&server);
             }
-        } else {
-            Err(Error::RoutingTableRefreshFailed(
-                "No router available".to_string(),
-            ))
         }
+        Err(Error::RoutingTableRefreshFailed(format!(
+            "No server available for {op} operation"
+        )))
     }
 
     pub(crate) fn backoff(&self) -> ExponentialBackoff {

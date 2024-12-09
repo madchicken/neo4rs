@@ -159,7 +159,8 @@ impl Graph {
     ///
     /// use [`Graph::execute`] when you are interested in the result stream
     pub async fn run(&self, q: Query) -> Result<()> {
-        self.impl_run_on(self.config.db.clone(), q).await
+        self.impl_run_on(self.config.db.clone(), q, Operation::Read)
+            .await
     }
 
     /// Runs a query on the provided database using a connection from the connection pool.
@@ -174,18 +175,24 @@ impl Graph {
     ///
     /// use [`Graph::execute`] when you are interested in the result stream
     pub async fn run_on(&self, db: impl Into<Database>, q: Query) -> Result<()> {
-        self.impl_run_on(Some(db.into()), q).await
+        self.impl_run_on(Some(db.into()), q, Operation::Read).await
     }
 
-    async fn impl_run_on(&self, db: Option<Database>, q: Query) -> Result<()> {
+    async fn impl_run_on(
+        &self,
+        db: Option<Database>,
+        q: Query,
+        operation: Operation,
+    ) -> Result<()> {
         backoff::future::retry_notify(
             self.pool.backoff(),
             || {
                 let pool = &self.pool;
                 let query = &q;
                 let db = db.as_deref();
+                let operation = operation.clone();
                 async move {
-                    let mut connection = pool.get(Some(Operation::Read)).await?;
+                    let mut connection = pool.get(Some(operation)).await?;
                     query.run_retryable(db, &mut connection).await
                 }
             },
@@ -201,7 +208,8 @@ impl Graph {
     /// This includes errors during a leader election or when the transaction resources on the server (memory, handles, ...) are exhausted.
     /// Retries happen with an exponential backoff until a retry delay exceeds 60s, at which point the query fails with the last error as it would without any retry.
     pub async fn execute(&self, q: Query) -> Result<DetachedRowStream> {
-        self.impl_execute_on(self.config.db.clone(), q).await
+        self.impl_execute_on(self.config.db.clone(), q, Operation::Write)
+            .await
     }
 
     /// Executes a query on the provided database and returns a [`DetachedRowStream`]
@@ -211,10 +219,16 @@ impl Graph {
     /// This includes errors during a leader election or when the transaction resources on the server (memory, handles, ...) are exhausted.
     /// Retries happen with an exponential backoff until a retry delay exceeds 60s, at which point the query fails with the last error as it would without any retry.
     pub async fn execute_on(&self, db: impl Into<Database>, q: Query) -> Result<DetachedRowStream> {
-        self.impl_execute_on(Some(db.into()), q).await
+        self.impl_execute_on(Some(db.into()), q, Operation::Write)
+            .await
     }
 
-    async fn impl_execute_on(&self, db: Option<Database>, q: Query) -> Result<DetachedRowStream> {
+    async fn impl_execute_on(
+        &self,
+        db: Option<Database>,
+        q: Query,
+        operation: Operation,
+    ) -> Result<DetachedRowStream> {
         backoff::future::retry_notify(
             self.pool.backoff(),
             || {
@@ -222,8 +236,9 @@ impl Graph {
                 let fetch_size = self.config.fetch_size;
                 let query = &q;
                 let db = db.as_deref();
+                let operation = operation.clone();
                 async move {
-                    let connection = pool.get(Some(Operation::Write)).await?;
+                    let connection = pool.get(Some(operation)).await?;
                     query.execute_retryable(db, fetch_size, connection).await
                 }
             },

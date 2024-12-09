@@ -3,7 +3,7 @@ use crate::pool::{create_pool, ConnectionPool};
 use crate::{Config, Error};
 use dashmap::DashMap;
 use futures::lock::Mutex;
-use log::{debug, info};
+use log::info;
 use std::sync::Arc;
 
 pub type Registry = DashMap<Server, ConnectionPool>;
