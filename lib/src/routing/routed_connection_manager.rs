@@ -2,10 +2,10 @@ use crate::bolt::{RouteBuilder, RoutingTable};
 use crate::pool::ManagedConnection;
 use crate::routing::connection_registry::ConnectionRegistry;
 use crate::routing::load_balancing::LoadBalancingStrategy;
-use crate::{Config, Error};
+use crate::{Config, Error, Operation};
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use futures::lock::Mutex;
-use log::{debug, info};
+use log::{debug, error, info};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,7 +44,7 @@ impl RoutedConnectionManager {
     }
 
     pub async fn refresh_routing_table(&self) -> Result<RoutingTable, Error> {
-        if let Some(router) = self.load_balancing_strategy.select_router() {
+        while let Some(router) = self.load_balancing_strategy.select_router() {
             if let Some(pool) = self.registry.get_pool(&router) {
                 if let Ok(mut connection) = pool.get().await {
                     info!(
@@ -59,41 +59,49 @@ impl RoutedConnectionManager {
                     match connection.route(route).await {
                         Ok(rt) => {
                             debug!("Routing table refreshed: {:?}", rt);
-                            Ok(rt)
+                            return Ok(rt);
                         }
-                        Err(e) => Err(Error::RoutingTableRefreshFailed(format!(
-                            "Failed to refresh routing table from router {}: {}",
-                            router.addresses.first().unwrap(),
-                            e
-                        ))),
+                        Err(e) => {
+                            self.registry.mark_unavailable(&router);
+                            error!(
+                                "Failed to refresh routing table from router {}: {}",
+                                router.addresses.first().unwrap(),
+                                e
+                            );
+                        }
                     }
                 } else {
-                    Err(Error::RoutingTableRefreshFailed(format!(
-                        "Failed to create connection to router {}",
+                    self.registry.mark_unavailable(&router);
+                    error!(
+                        "Failed to create connection to router `{}`",
                         router.addresses.first().unwrap()
-                    )))
+                    );
                 }
             } else {
-                Err(Error::RoutingTableRefreshFailed(
-                    "No connection manager available".to_string(),
-                ))
+                error!(
+                    "No connection manager available for router `{}` in the registry",
+                    router.addresses.first().unwrap()
+                );
             }
-        } else {
-            Err(Error::RoutingTableRefreshFailed(
-                "No router available".to_string(),
-            ))
         }
+        // After trying all routers, we still couldn't refresh the routing table: return an error
+        Err(Error::ServerUnavailableError(
+            "No router available".to_string(),
+        ))
     }
 
-    pub(crate) async fn get(&self, operation: Option<&str>) -> Result<ManagedConnection, Error> {
+    pub(crate) async fn get(
+        &self,
+        operation: Option<Operation>,
+    ) -> Result<ManagedConnection, Error> {
         // We probably need to do this in a more efficient way, since this will block the request of a connection
         // while we refresh the routing table. We should probably have a separate thread that refreshes the routing
         self.registry
             .update_if_expired(|| self.refresh_routing_table())
             .await?;
 
-        if let Some(router) = match operation.unwrap_or(WRITE_OPERATION) {
-            WRITE_OPERATION => self.load_balancing_strategy.select_writer(),
+        if let Some(router) = match operation.unwrap_or(Operation::Write) {
+            Operation::Write => self.load_balancing_strategy.select_writer(),
             _ => self.load_balancing_strategy.select_reader(),
         } {
             if let Some(pool) = self.registry.get_pool(&router) {

@@ -81,6 +81,10 @@ impl ConnectionRegistry {
     pub fn get_pool(&self, server: &Server) -> Option<ConnectionPool> {
         self.connections.get(server).map(|entry| entry.clone())
     }
+
+    pub fn mark_unavailable(&self, server: &Server) {
+        self.connections.remove(server);
+    }
 }
 
 const _: () = {

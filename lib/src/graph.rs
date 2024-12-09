@@ -17,6 +17,7 @@ use crate::{
     query::Query,
     stream::DetachedRowStream,
     txn::Txn,
+    Operation,
 };
 use backoff::ExponentialBackoff;
 use std::time::Duration;
@@ -29,10 +30,10 @@ enum ConnectionPoolManager {
 }
 
 impl ConnectionPoolManager {
-    async fn get(&self) -> Result<ManagedConnection> {
+    async fn get(&self, operation: Option<Operation>) -> Result<ManagedConnection> {
         match self {
             #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-            Routed(manager) => manager.get(Some("WRITE")).await,
+            Routed(manager) => manager.get(operation).await,
             Normal(pool) => pool.get().await.map_err(crate::Error::from),
         }
     }
@@ -142,7 +143,7 @@ impl Graph {
     }
 
     async fn impl_start_txn_on(&self, db: Option<Database>) -> Result<Txn> {
-        let connection = self.pool.get().await?;
+        let connection = self.pool.get(Some(Operation::Write)).await?;
         Txn::new(db, self.config.fetch_size, connection).await
     }
 
@@ -184,7 +185,7 @@ impl Graph {
                 let query = &q;
                 let db = db.as_deref();
                 async move {
-                    let mut connection = pool.get().await?;
+                    let mut connection = pool.get(Some(Operation::Read)).await?;
                     query.run_retryable(db, &mut connection).await
                 }
             },
@@ -222,7 +223,7 @@ impl Graph {
                 let query = &q;
                 let db = db.as_deref();
                 async move {
-                    let connection = pool.get().await?;
+                    let connection = pool.get(Some(Operation::Write)).await?;
                     query.execute_retryable(db, fetch_size, connection).await
                 }
             },

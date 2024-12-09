@@ -497,3 +497,7 @@ pub use crate::types::{
 pub use crate::version::Version;
 
 pub(crate) use messages::Success;
+pub(crate) enum Operation {
+    Read,
+    Write,
+}
