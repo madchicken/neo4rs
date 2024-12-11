@@ -85,9 +85,70 @@ impl ConnectionRegistry {
     pub fn mark_unavailable(&self, server: &Server) {
         self.connections.remove(server);
     }
+
+    pub fn servers(&self) -> Vec<Server> {
+        self.connections.iter().map(|entry| entry.key().clone()).collect()
+    }
 }
 
-const _: () = {
-    const fn assert_send_sync<T: ?Sized + Send + Sync>() {}
-    assert_send_sync::<Registry>();
-};
+#[cfg(test)]
+mod tests {
+    use crate::auth::ConnectionTLSConfig;
+    use crate::bolt::Server;
+    use crate::routing::load_balancing::LoadBalancingStrategy;
+    use crate::routing::RoundRobinStrategy;
+    use super::*;
+
+    #[tokio::test]
+    async fn test_available_servers() {
+        let readers = vec![
+            Server {
+                addresses: vec!["host1:7687".to_string()],
+                role: "READ".to_string(),
+            },
+            Server {
+                addresses: vec!["host2:7688".to_string()],
+                role: "READ".to_string(),
+            },
+        ];
+        let writers = vec![
+            Server {
+                addresses: vec!["host3:7687".to_string()],
+                role: "WRITE".to_string(),
+            },
+            Server {
+                addresses: vec!["host4:7688".to_string()],
+                role: "WRITE".to_string(),
+            },
+        ];
+        let routers = vec![
+            Server {
+                addresses: vec!["host0:7687".to_string()],
+                role: "ROUTE".to_string(),
+            },
+        ];
+        let cluster_routing_table = RoutingTable {
+            ttl: 0,
+            db: None,
+            servers: readers.clone().into_iter().chain(writers.clone()).chain(routers.clone()).collect(),
+        };
+        let config = Config{
+            uri: "neo4j://localhost:7687".to_string(),
+            user: "user".to_string(),
+            password: "password".to_string(),
+            max_connections: 10,
+            db: Some("neo4j".into()),
+            fetch_size: 0,
+            tls_config: ConnectionTLSConfig::None,
+        };
+        let registry = ConnectionRegistry::new(&config, Arc::new(cluster_routing_table.clone())).await.unwrap();
+        assert_eq!(registry.connections.len(), 5);
+        let strategy = RoundRobinStrategy::new(cluster_routing_table.clone());
+        let router = strategy.select_router(registry.servers().as_slice()).unwrap();
+        assert_eq!(router, routers[0]);
+        registry.mark_unavailable(&writers[0]);
+        assert_eq!(registry.connections.len(), 4);
+        let writer = strategy.select_writer(registry.servers().as_slice()).unwrap();
+        assert_eq!(writer, writers[1]);
+    }
+}
