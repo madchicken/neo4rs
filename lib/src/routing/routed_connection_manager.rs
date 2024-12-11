@@ -77,7 +77,7 @@ impl RoutedConnectionManager {
                 }
             } else {
                 error!(
-                    "No connection manager available for router `{}` in the registry",
+                    "No connection manager available for router `{}` in the registry. Maybe it was marked as unavailable",
                     router.addresses.first().unwrap()
                 );
             }
@@ -104,13 +104,24 @@ impl RoutedConnectionManager {
             _ => self.load_balancing_strategy.select_reader(),
         } {
             if let Some(pool) = self.registry.get_pool(&server) {
-                return Ok(pool.get().await?);
+                match pool.get().await {
+                    Ok(connection) => return Ok(connection),
+                    Err(e) => {
+                        error!(
+                            "Failed to get connection from pool for server `{}`: {}",
+                            server.addresses.first().unwrap(),
+                            e
+                        );
+                        self.registry.mark_unavailable(&server);
+                        continue;
+                    }
+                }
             } else {
+                // We couldn't find a connection manager for the server, it was probably marked unavailable
                 error!(
                     "No connection manager available for router `{}` in the registry",
                     server.addresses.first().unwrap()
                 );
-                self.registry.mark_unavailable(&server);
             }
         }
         Err(Error::RoutingTableRefreshFailed(format!(
