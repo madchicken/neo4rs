@@ -68,7 +68,7 @@ async fn refresh_routing_table(
 ) -> Result<u64, Error> {
     debug!("Routing table expired or empty, refreshing...");
     let routing_table = provider.fetch_routing_table(&config, bookmarks).await?;
-    debug!("Routing table refreshed: {:?}", routing_table);
+    debug!("Routing table refreshed: {:?} (bookmarks: {:?})", routing_table, bookmarks);
     let servers = routing_table.resolve();
     let url = NeoUrl::parse(config.uri.as_str())?;
     // Convert neo4j scheme to bolt scheme to create connection pools.
