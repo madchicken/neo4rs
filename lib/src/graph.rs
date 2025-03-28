@@ -123,7 +123,7 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     pub async fn start_txn(&self) -> Result<Txn> {
-        self.impl_start_txn_on(self.config.db.clone(), Operation::Write)
+        self.impl_start_txn_on(self.config.db.clone(), Operation::Write, vec![])
             .await
     }
 
@@ -133,8 +133,8 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-    pub async fn start_txn_as(&self, operation: Operation) -> Result<Txn> {
-        self.impl_start_txn_on(self.config.db.clone(), operation)
+    pub async fn start_txn_as(&self, operation: Operation, bookmarks: Option<Vec<String>>) -> Result<Txn> {
+        self.impl_start_txn_on(self.config.db.clone(), operation, bookmarks.unwrap_or_default())
             .await
     }
 
@@ -144,14 +144,24 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     pub async fn start_txn_on(&self, db: impl Into<Database>) -> Result<Txn> {
-        self.impl_start_txn_on(Some(db.into()), Operation::Write)
+        self.impl_start_txn_on(Some(db.into()), Operation::Write, vec![])
             .await
     }
 
     #[allow(unused_variables)]
-    async fn impl_start_txn_on(&self, db: Option<Database>, operation: Operation) -> Result<Txn> {
+    async fn impl_start_txn_on(&self, db: Option<Database>, operation: Operation, bookmarks: Vec<String>) -> Result<Txn> {
         let connection = self.pool.get(Some(operation.clone())).await?;
-        Txn::new(db, self.config.fetch_size, connection, operation).await
+        if cfg!(feature = "unstable-bolt-protocol-impl-v2") {
+            Txn::new_with_bookmarks(
+                db,
+                self.config.fetch_size,
+                connection,
+                operation,
+                bookmarks,
+            ).await
+        } else {
+            Txn::new(db, self.config.fetch_size, connection, operation).await
+        }
     }
 
     /// Runs a query on the configured database using a connection from the connection pool,

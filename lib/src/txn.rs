@@ -20,6 +20,7 @@ pub struct Txn {
     connection: ManagedConnection,
     operation: Operation,
     bookmark: Option<String>,
+    bookmarks: Vec<String>,
 }
 
 impl Txn {
@@ -37,6 +38,29 @@ impl Txn {
                 connection,
                 operation,
                 bookmark: None,
+                bookmarks: Vec::new(),
+            }),
+            msg => Err(msg.into_error("BEGIN")),
+        }
+    }
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    pub(crate) async fn new_with_bookmarks(
+        db: Option<Database>,
+        fetch_size: usize,
+        mut connection: ManagedConnection,
+        operation: Operation,
+        bookmarks: Vec<String>,
+    ) -> Result<Self> {
+        let begin = BoltRequest::begin(db.as_deref());
+        match connection.send_recv(begin).await? {
+            BoltResponse::Success(_) => Ok(Txn {
+                db,
+                fetch_size,
+                connection,
+                operation,
+                bookmark: None,
+                bookmarks,
             }),
             msg => Err(msg.into_error("BEGIN")),
         }
