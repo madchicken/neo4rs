@@ -208,7 +208,20 @@ impl Graph {
         q: impl Into<Query>,
         operation: Operation,
     ) -> Result<ResultSummary> {
-        self.impl_run_on(Some(db.into()), q.into(), operation).await
+        match self.impl_run_on(Some(db.into()), q.into(), operation).await {
+            Ok(result) => {
+                if let Some(bookmark) = result.bookmark.as_deref() {
+                    match &self.pool {
+                        Routed(routed) => {
+                            routed.add_bookmark(bookmark).await;
+                        }
+                        Direct(_) => {}
+                    }
+                }
+                Ok(result)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]

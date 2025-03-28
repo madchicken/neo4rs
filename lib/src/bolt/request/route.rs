@@ -10,7 +10,7 @@ pub struct Response {
     pub rt: RoutingTable,
 }
 
-impl ExpectedResponse for Route<'_> {
+impl ExpectedResponse for Route {
     type Response = Summary<Response>;
 }
 
@@ -32,7 +32,7 @@ impl Serialize for Routing {
     }
 }
 
-impl Serialize for Route<'_> {
+impl Serialize for Route {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

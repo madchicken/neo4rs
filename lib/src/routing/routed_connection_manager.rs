@@ -18,7 +18,6 @@ use tokio::sync::mpsc::Sender;
 pub struct RoutedConnectionManager {
     load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
     connection_registry: Arc<ConnectionRegistry>,
-    #[allow(dead_code)]
     bookmarks: Arc<Mutex<Vec<String>>>,
     backoff: Arc<ExponentialBackoff>,
     channel: Sender<RegistryCommand>,
@@ -83,7 +82,9 @@ impl RoutedConnectionManager {
         }
         debug!("Routing table is empty for requested {op} operation, forcing refresh");
         self.channel
-            .send(RegistryCommand::Refresh)
+            .send(RegistryCommand::Refresh(
+                self.bookmarks.lock().await.clone(),
+            ))
             .await
             .map_err(|e| {
                 error!("Failed to send refresh command to registry: {}", e);
@@ -111,8 +112,8 @@ impl RoutedConnectionManager {
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn add_bookmark(&self, bookmark: String) {
-        self.bookmarks.lock().await.push(bookmark);
+    pub(crate) async fn add_bookmark(&self, bookmark: &str) {
+        self.bookmarks.lock().await.push(bookmark.to_string());
     }
 
     #[allow(dead_code)]
