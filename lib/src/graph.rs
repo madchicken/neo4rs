@@ -153,7 +153,7 @@ impl Graph {
         let connection = self.pool.get(Some(operation.clone())).await?;
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
         {
-            Txn::new_with_bookmarks(
+            Txn::new(
                 db,
                 self.config.fetch_size,
                 connection,

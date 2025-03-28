@@ -24,6 +24,7 @@ pub struct Txn {
 }
 
 impl Txn {
+    #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
     pub(crate) async fn new(
         db: Option<Database>,
         fetch_size: usize,
@@ -45,7 +46,7 @@ impl Txn {
     }
 
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-    pub(crate) async fn new_with_bookmarks(
+    pub(crate) async fn new(
         db: Option<Database>,
         fetch_size: usize,
         mut connection: ManagedConnection,

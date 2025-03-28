@@ -210,6 +210,7 @@ impl Serialize for BeginMeta<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use crate::bolt::Message;
     use super::Begin;
     use crate::packstream::bolt;
@@ -217,23 +218,36 @@ mod tests {
 
     #[test]
     fn serialize() {
-        let begin = Begin::builder().with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"]).build(Version::V4);
+        let begin = Begin::builder()
+            .with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"])
+            .with_tx_metadata(HashMap::from([("action".to_string(), "data_import".to_string()), ("user".to_string(), "alice".to_string())]))
+            .build(Version::V4);
         let bytes = begin.to_bytes().unwrap();
 
         let expected = bolt()
             .structure(1, 0x11)
-            .tiny_map(2)
+            .tiny_map(3)
             .tiny_string("bookmarks")
             .tiny_list(2)
             .string8("example-bookmark:1")
             .string8("example-bookmark:2")
             .tiny_string("mode")
             .tiny_string("w")
+            .tiny_string("tx_metadata")
+            .tiny_map(2)
+            .tiny_string("user")
+            .tiny_string("alice")
+            .tiny_string("action")
+            .tiny_string("data_import")
             .build();
 
         assert_eq!(bytes, expected);
 
-        let begin = Begin::builder().with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"]).with_db(Database::from("neo4j")).with_imp_user("my_user").build(Version::V4_4);
+        let begin = Begin::builder()
+            .with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"])
+            .with_db(Database::from("neo4j"))
+            .with_imp_user("my_user")
+            .build(Version::V4_4);
         let bytes = begin.to_bytes().unwrap();
 
         let expected = bolt()
