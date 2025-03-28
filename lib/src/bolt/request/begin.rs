@@ -1,10 +1,10 @@
+use crate::bolt::{ExpectedResponse, Hello, Summary};
+use crate::routing::Route;
+use crate::{Database, Version};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
-use serde::{Deserialize, Serialize};
-use serde::ser::SerializeMap;
-use crate::bolt::{ExpectedResponse, Hello, Summary};
-use crate::{Database, Version};
-use crate::routing::Route;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Begin<'a> {
@@ -34,7 +34,6 @@ pub struct BeginMeta<'a> {
     pub(crate) tx_metadata: Option<TxMetadata>,
     pub(crate) mode: &'a str,
     pub(crate) extra: BeginExtra<'a>,
-
     // To be added when implementing protocol version 5.2
     // pub(crate) notifications_minimum_severity: &'a str,
     // pub(crate) notifications_disabled_categories: Vec<String>
@@ -62,7 +61,10 @@ impl<'a> BeginBuilder<'a> {
     }
 
     pub fn with_bookmarks(mut self, bookmarks: Vec<impl Display>) -> Self {
-        self.bookmarks = bookmarks.iter().map(|b| b.to_string()).collect::<Vec<String>>();
+        self.bookmarks = bookmarks
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<String>>();
         self
     }
 
@@ -94,8 +96,8 @@ impl<'a> BeginBuilder<'a> {
                     tx_timeout: self.tx_timeout,
                     tx_metadata: self.tx_metadata,
                     mode: self.mode,
-                    extra: BeginExtra::V4(self.db)
-                }
+                    extra: BeginExtra::V4(self.db),
+                },
             },
             _ => Begin {
                 metadata: BeginMeta {
@@ -106,8 +108,8 @@ impl<'a> BeginBuilder<'a> {
                     extra: BeginExtra::V4_4(Extra {
                         db: self.db,
                         imp_user: self.imp_user,
-                    })
-                }
+                    }),
+                },
             },
         }
     }
@@ -209,17 +211,23 @@ impl Serialize for BeginMeta<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use crate::bolt::Message;
     use super::Begin;
+    use crate::bolt::Message;
     use crate::packstream::bolt;
     use crate::{Database, Version};
+    use std::collections::HashMap;
 
     #[test]
     fn serialize() {
         let begin = Begin::builder(None)
             .with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"])
-            .with_tx_metadata([("user".to_string(), "alice".to_string()), ("action".to_string(), "data_import".to_string())].to_vec())
+            .with_tx_metadata(
+                [
+                    ("user".to_string(), "alice".to_string()),
+                    ("action".to_string(), "data_import".to_string()),
+                ]
+                .to_vec(),
+            )
             .build(Version::V4);
         let bytes = begin.to_bytes().unwrap();
 
@@ -266,5 +274,4 @@ mod tests {
 
         assert_eq!(bytes, expected);
     }
-
 }

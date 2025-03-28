@@ -133,9 +133,17 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-    pub async fn start_txn_as(&self, operation: Operation, bookmarks: Option<Vec<String>>) -> Result<Txn> {
-        self.impl_start_txn_on(self.config.db.clone(), operation, bookmarks.unwrap_or_default().as_slice())
-            .await
+    pub async fn start_txn_as(
+        &self,
+        operation: Operation,
+        bookmarks: Option<Vec<String>>,
+    ) -> Result<Txn> {
+        self.impl_start_txn_on(
+            self.config.db.clone(),
+            operation,
+            bookmarks.unwrap_or_default().as_slice(),
+        )
+        .await
     }
 
     /// Starts a new transaction on the provided database.
@@ -149,17 +157,16 @@ impl Graph {
     }
 
     #[allow(unused_variables)]
-    async fn impl_start_txn_on(&self, db: Option<Database>, operation: Operation, bookmarks: &[String]) -> Result<Txn> {
+    async fn impl_start_txn_on(
+        &self,
+        db: Option<Database>,
+        operation: Operation,
+        bookmarks: &[String],
+    ) -> Result<Txn> {
         let connection = self.pool.get(Some(operation.clone())).await?;
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
         {
-            Txn::new(
-                db,
-                self.config.fetch_size,
-                connection,
-                operation,
-                bookmarks,
-            ).await
+            Txn::new(db, self.config.fetch_size, connection, operation, bookmarks).await
         }
         #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
         {

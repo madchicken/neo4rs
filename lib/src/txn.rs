@@ -17,6 +17,7 @@ pub struct Txn {
     fetch_size: usize,
     connection: ManagedConnection,
     operation: Operation,
+    #[allow(dead_code)]
     bookmark: Option<String>,
 }
 

@@ -26,8 +26,8 @@ impl ExpectedResponse for Commit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bolt::Message as _, packstream::bolt};
     use crate::bolt::MessageResponse;
+    use crate::{bolt::Message as _, packstream::bolt};
 
     #[test]
     fn serialize() {
