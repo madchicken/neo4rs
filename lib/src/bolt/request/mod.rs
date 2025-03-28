@@ -7,6 +7,7 @@ mod pull;
 mod reset;
 mod rollback;
 mod route;
+mod begin;
 
 pub use commit::Commit;
 pub use discard::Discard;

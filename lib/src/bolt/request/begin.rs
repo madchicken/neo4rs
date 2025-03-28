@@ -1,0 +1,257 @@
+use std::collections::HashMap;
+use std::fmt::Display;
+use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use crate::bolt::{ExpectedResponse, Hello, Summary};
+use crate::{Database, Version};
+use crate::routing::Route;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Begin<'a> {
+    metadata: BeginMeta<'a>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeginExtra {
+    V4(Option<Database>),
+    V4_4(Extra),
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct Extra {
+    pub(crate) db: Option<Database>,
+    pub(crate) imp_user: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BeginMeta<'a> {
+    pub(crate) bookmarks: Vec<String>,
+    pub(crate) tx_timeout: Option<u32>,
+    pub(crate) tx_metadata: Option<HashMap<String, String>>,
+    pub(crate) mode: &'a str,
+    pub(crate) extra: BeginExtra,
+
+    // To be added when implementing protocol version 5.2
+    // pub(crate) notifications_minimum_severity: &'a str,
+    // pub(crate) notifications_disabled_categories: Vec<String>
+}
+
+pub struct BeginBuilder<'a> {
+    bookmarks: Vec<String>,
+    tx_timeout: Option<u32>,
+    tx_metadata: Option<HashMap<String, String>>,
+    mode: &'a str,
+    db: Option<Database>,
+    imp_user: Option<String>,
+}
+
+impl<'a> BeginBuilder<'a> {
+    pub fn new() -> Self {
+        Self {
+            bookmarks: Vec::new(),
+            tx_timeout: None,
+            tx_metadata: None,
+            mode: "w", // default is write mode
+            db: None,
+            imp_user: None,
+        }
+    }
+
+    pub fn with_bookmarks(mut self, bookmarks: Vec<impl Display>) -> Self {
+        self.bookmarks = bookmarks.iter().map(|b| b.to_string()).collect::<Vec<String>>();
+        self
+    }
+
+    pub fn with_tx_timeout(mut self, tx_timeout: u32) -> Self {
+        self.tx_timeout = Some(tx_timeout);
+        self
+    }
+
+    pub fn with_tx_metadata(mut self, tx_metadata: HashMap<String, String>) -> Self {
+        self.tx_metadata = Some(tx_metadata);
+        self
+    }
+
+    pub fn with_mode(mut self, mode: &'a str) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn with_db(mut self, db: Database) -> Self {
+        self.db = Some(db);
+        self
+    }
+
+    pub fn with_imp_user(mut self, imp_user: &str) -> Self {
+        self.imp_user = Some(imp_user.to_string());
+        self
+    }
+
+    pub fn build(self, version: Version) -> Begin<'a> {
+        match version.cmp(&Version::V4) {
+            std::cmp::Ordering::Equal => Begin {
+                metadata: BeginMeta {
+                    bookmarks: self.bookmarks,
+                    tx_timeout: self.tx_timeout,
+                    tx_metadata: self.tx_metadata,
+                    mode: self.mode,
+                    extra: BeginExtra::V4(self.db)
+                }
+            },
+            std::cmp::Ordering::Greater => Begin {
+                metadata: BeginMeta {
+                    bookmarks: self.bookmarks,
+                    tx_timeout: self.tx_timeout,
+                    tx_metadata: self.tx_metadata,
+                    mode: self.mode,
+                    extra: BeginExtra::V4_4(Extra {
+                        db: self.db,
+                        imp_user: self.imp_user,
+                    })
+                }
+            },
+            std::cmp::Ordering::Less => Begin {
+                metadata: BeginMeta {
+                    bookmarks: self.bookmarks,
+                    tx_timeout: self.tx_timeout,
+                    tx_metadata: self.tx_metadata,
+                    mode: self.mode,
+                    extra: BeginExtra::None
+                }
+            },
+        }
+    }
+}
+
+impl<'a> Begin<'a> {
+    pub fn builder() -> BeginBuilder<'a> {
+        BeginBuilder::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Response {
+    pub(crate) db: Option<String>,
+}
+
+impl ExpectedResponse for Begin<'_> {
+    type Response = Summary<Response>;
+}
+
+impl Serialize for Begin<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_newtype_variant("Request", 0x11, "BEGIN", &self.metadata)
+    }
+}
+
+impl Serialize for BeginMeta<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut fields_count = 2; // minimum number of fields for the map
+        if self.tx_metadata.is_some() {
+            fields_count += 1;
+        }
+        if self.tx_timeout.is_some() {
+            fields_count += 1;
+        }
+
+        match &self.extra {
+            BeginExtra::V4(e) => {
+                if e.is_some() {
+                    fields_count += 1;
+                }
+            }
+            BeginExtra::V4_4(e) => {
+                if e.db.is_some() {
+                    fields_count += 1;
+                }
+                if e.imp_user.is_some() {
+                    fields_count += 1;
+                }
+            }
+            BeginExtra::None => {}
+        }
+
+        let mut map = serializer.serialize_map(Some(fields_count))?;
+        map.serialize_entry("bookmarks", &self.bookmarks)?;
+        map.serialize_entry("mode", &self.mode)?;
+        if let Some(tx_timeout) = self.tx_timeout {
+            map.serialize_entry("tx_timeout", &tx_timeout)?;
+        }
+        if let Some(tx_metadata) = self.tx_metadata.as_ref() {
+            map.serialize_entry("tx_metadata", tx_metadata)?;
+        }
+        match &self.extra {
+            BeginExtra::V4(db) => {
+                if let Some(db) = db {
+                    map.serialize_entry("db", db)?;
+                }
+            }
+            BeginExtra::V4_4(extra) => {
+                if let Some(db) = extra.db.as_ref() {
+                    map.serialize_entry("db", db)?;
+                }
+                if let Some(imp_user) = extra.imp_user.as_ref() {
+                    map.serialize_entry("imp_user", imp_user)?;
+                }
+            }
+            BeginExtra::None => {}
+        }
+        map.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bolt::Message;
+    use super::Begin;
+    use crate::packstream::bolt;
+    use crate::{Database, Version};
+
+    #[test]
+    fn serialize() {
+        let begin = Begin::builder().with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"]).build(Version::V4);
+        let bytes = begin.to_bytes().unwrap();
+
+        let expected = bolt()
+            .structure(1, 0x11)
+            .tiny_map(2)
+            .tiny_string("bookmarks")
+            .tiny_list(2)
+            .string8("example-bookmark:1")
+            .string8("example-bookmark:2")
+            .tiny_string("mode")
+            .tiny_string("w")
+            .build();
+
+        assert_eq!(bytes, expected);
+
+        let begin = Begin::builder().with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"]).with_db(Database::from("neo4j")).with_imp_user("my_user").build(Version::V4_4);
+        let bytes = begin.to_bytes().unwrap();
+
+        let expected = bolt()
+            .structure(1, 0x11)
+            .tiny_map(4)
+            .tiny_string("bookmarks")
+            .tiny_list(2)
+            .string8("example-bookmark:1")
+            .string8("example-bookmark:2")
+            .tiny_string("mode")
+            .tiny_string("w")
+            .tiny_string("db")
+            .tiny_string("neo4j")
+            .tiny_string("imp_user")
+            .tiny_string("my_user")
+            .build();
+
+        assert_eq!(bytes, expected);
+    }
+
+}

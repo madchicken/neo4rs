@@ -151,7 +151,8 @@ impl Graph {
     #[allow(unused_variables)]
     async fn impl_start_txn_on(&self, db: Option<Database>, operation: Operation, bookmarks: Vec<String>) -> Result<Txn> {
         let connection = self.pool.get(Some(operation.clone())).await?;
-        if cfg!(feature = "unstable-bolt-protocol-impl-v2") {
+        #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+        {
             Txn::new_with_bookmarks(
                 db,
                 self.config.fetch_size,
@@ -159,7 +160,9 @@ impl Graph {
                 operation,
                 bookmarks,
             ).await
-        } else {
+        }
+        #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+        {
             Txn::new(db, self.config.fetch_size, connection, operation).await
         }
     }
