@@ -12,13 +12,14 @@ use crate::{
 
 /// A handle which is used to control a transaction, created as a result of [`crate::Graph::start_txn`]
 ///
-/// When a transation is started, a dedicated connection is resered and moved into the handle which
+/// When a transaction is started, a dedicated connection is reserved and moved into the handle which
 /// will be released to the connection pool when the [`Txn`] handle is dropped.
 pub struct Txn {
     db: Option<Database>,
     fetch_size: usize,
     connection: ManagedConnection,
     operation: Operation,
+    bookmark: Option<String>,
 }
 
 impl Txn {
@@ -35,6 +36,7 @@ impl Txn {
                 fetch_size,
                 connection,
                 operation,
+                bookmark: None,
             }),
             msg => Err(msg.into_error("BEGIN")),
         }
@@ -115,7 +117,12 @@ impl Txn {
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
         {
             match self.connection.send_recv_as(Commit).await? {
-                Summary::Success(_) => Ok(()),
+                Summary::Success(resp) => {
+                    if let Some(bookmark) = resp.metadata.bookmark {
+                        self.bookmark = Some(bookmark);
+                    }
+                    Ok(())
+                },
                 msg => Err(msg.into_error("COMMIT")),
             }
         }
@@ -143,6 +150,11 @@ impl Txn {
 
     pub fn handle(&mut self) -> &mut impl TransactionHandle {
         self
+    }
+
+    #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
+    pub fn last_bookmark(&self) -> Option<&str> {
+        self.bookmark.as_deref()
     }
 }
 
