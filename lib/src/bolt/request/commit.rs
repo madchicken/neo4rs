@@ -1,9 +1,14 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::bolt::{ExpectedResponse, Summary};
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Commit;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct CommitResponse {
+    pub bookmark: Option<String>,
+}
 
 impl Serialize for Commit {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -15,13 +20,14 @@ impl Serialize for Commit {
 }
 
 impl ExpectedResponse for Commit {
-    type Response = Summary<()>;
+    type Response = Summary<CommitResponse>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{bolt::Message as _, packstream::bolt};
+    use crate::bolt::MessageResponse;
 
     #[test]
     fn serialize() {
@@ -31,5 +37,18 @@ mod tests {
         let expected = bolt().structure(0, 0x12).build();
 
         assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn deserialize() {
+        let data = bolt()
+            .tiny_map(1)
+            .string8("bookmark")
+            .string8("example-bookmark:1")
+            .build();
+        let response = CommitResponse::parse(data).unwrap();
+
+        assert!(response.bookmark.is_some());
+        assert_eq!(response.bookmark.unwrap(), "example-bookmark:1");
     }
 }
