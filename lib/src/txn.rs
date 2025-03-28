@@ -1,12 +1,10 @@
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-use crate::bolt::{Commit, Rollback, Summary};
+use crate::bolt::{Begin, Commit, Rollback, Summary};
+#[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
+use crate::messages::{BoltRequest, BoltResponse};
+
 use crate::{
-    config::Database,
-    errors::Result,
-    messages::{BoltRequest, BoltResponse},
-    pool::ManagedConnection,
-    query::Query,
-    stream::RowStream,
+    config::Database, errors::Result, pool::ManagedConnection, query::Query, stream::RowStream,
     Operation, RunResult,
 };
 
@@ -20,7 +18,6 @@ pub struct Txn {
     connection: ManagedConnection,
     operation: Operation,
     bookmark: Option<String>,
-    bookmarks: Vec<String>,
 }
 
 impl Txn {
@@ -39,7 +36,6 @@ impl Txn {
                 connection,
                 operation,
                 bookmark: None,
-                bookmarks: Vec::new(),
             }),
             msg => Err(msg.into_error("BEGIN")),
         }
@@ -51,19 +47,21 @@ impl Txn {
         fetch_size: usize,
         mut connection: ManagedConnection,
         operation: Operation,
-        bookmarks: Vec<String>,
+        bookmarks: &[String],
     ) -> Result<Self> {
-        let begin = BoltRequest::begin(db.as_deref());
-        match connection.send_recv(begin).await? {
-            BoltResponse::Success(_) => Ok(Txn {
-                db,
+        let begin = Begin::builder(db.as_deref())
+            .with_bookmarks(bookmarks.to_vec())
+            .build(connection.version());
+        match connection.send_recv_as(begin).await? {
+            Summary::Success(response) => Ok(Txn {
+                db: response.metadata.db.or(db),
                 fetch_size,
                 connection,
                 operation,
                 bookmark: None,
-                bookmarks,
             }),
-            msg => Err(msg.into_error("BEGIN")),
+            Summary::Ignored => Err(crate::errors::Error::Ignored("Failed to start transaction")),
+            Summary::Failure(failure) => Err(failure.into_error()),
         }
     }
 
@@ -147,7 +145,7 @@ impl Txn {
                         self.bookmark = Some(bookmark);
                     }
                     Ok(())
-                },
+                }
                 msg => Err(msg.into_error("COMMIT")),
             }
         }

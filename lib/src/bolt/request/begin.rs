@@ -12,26 +12,28 @@ pub struct Begin<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BeginExtra {
-    V4(Option<Database>),
-    V4_4(Extra),
-    None,
+pub enum BeginExtra<'a> {
+    V4(Option<&'a str>),
+    V4_4(Extra<'a>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
-pub struct Extra {
-    pub(crate) db: Option<Database>,
-    pub(crate) imp_user: Option<String>,
+pub struct Extra<'a> {
+    pub(crate) db: Option<&'a str>,
+    pub(crate) imp_user: Option<&'a str>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TxMetadata(Vec<(String, String)>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BeginMeta<'a> {
     pub(crate) bookmarks: Vec<String>,
     pub(crate) tx_timeout: Option<u32>,
-    pub(crate) tx_metadata: Option<HashMap<String, String>>,
+    pub(crate) tx_metadata: Option<TxMetadata>,
     pub(crate) mode: &'a str,
-    pub(crate) extra: BeginExtra,
+    pub(crate) extra: BeginExtra<'a>,
 
     // To be added when implementing protocol version 5.2
     // pub(crate) notifications_minimum_severity: &'a str,
@@ -41,20 +43,20 @@ pub struct BeginMeta<'a> {
 pub struct BeginBuilder<'a> {
     bookmarks: Vec<String>,
     tx_timeout: Option<u32>,
-    tx_metadata: Option<HashMap<String, String>>,
+    tx_metadata: Option<TxMetadata>,
     mode: &'a str,
-    db: Option<Database>,
-    imp_user: Option<String>,
+    db: Option<&'a str>,
+    imp_user: Option<&'a str>,
 }
 
 impl<'a> BeginBuilder<'a> {
-    pub fn new() -> Self {
+    pub fn new(db: Option<&'a str>) -> Self {
         Self {
             bookmarks: Vec::new(),
             tx_timeout: None,
             tx_metadata: None,
             mode: "w", // default is write mode
-            db: None,
+            db,
             imp_user: None,
         }
     }
@@ -69,8 +71,8 @@ impl<'a> BeginBuilder<'a> {
         self
     }
 
-    pub fn with_tx_metadata(mut self, tx_metadata: HashMap<String, String>) -> Self {
-        self.tx_metadata = Some(tx_metadata);
+    pub fn with_tx_metadata(mut self, tx_metadata: Vec<(String, String)>) -> Self {
+        self.tx_metadata = Some(TxMetadata(tx_metadata));
         self
     }
 
@@ -79,19 +81,14 @@ impl<'a> BeginBuilder<'a> {
         self
     }
 
-    pub fn with_db(mut self, db: Database) -> Self {
-        self.db = Some(db);
-        self
-    }
-
-    pub fn with_imp_user(mut self, imp_user: &str) -> Self {
-        self.imp_user = Some(imp_user.to_string());
+    pub fn with_imp_user(mut self, imp_user: &'a str) -> Self {
+        self.imp_user = Some(imp_user);
         self
     }
 
     pub fn build(self, version: Version) -> Begin<'a> {
-        match version.cmp(&Version::V4) {
-            std::cmp::Ordering::Equal => Begin {
+        match version.cmp(&Version::V4_4) {
+            std::cmp::Ordering::Less => Begin {
                 metadata: BeginMeta {
                     bookmarks: self.bookmarks,
                     tx_timeout: self.tx_timeout,
@@ -100,7 +97,7 @@ impl<'a> BeginBuilder<'a> {
                     extra: BeginExtra::V4(self.db)
                 }
             },
-            std::cmp::Ordering::Greater => Begin {
+            _ => Begin {
                 metadata: BeginMeta {
                     bookmarks: self.bookmarks,
                     tx_timeout: self.tx_timeout,
@@ -112,28 +109,19 @@ impl<'a> BeginBuilder<'a> {
                     })
                 }
             },
-            std::cmp::Ordering::Less => Begin {
-                metadata: BeginMeta {
-                    bookmarks: self.bookmarks,
-                    tx_timeout: self.tx_timeout,
-                    tx_metadata: self.tx_metadata,
-                    mode: self.mode,
-                    extra: BeginExtra::None
-                }
-            },
         }
     }
 }
 
 impl<'a> Begin<'a> {
-    pub fn builder() -> BeginBuilder<'a> {
-        BeginBuilder::new()
+    pub fn builder(db: Option<&'a str>) -> BeginBuilder<'a> {
+        BeginBuilder::new(db)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Response {
-    pub(crate) db: Option<String>,
+    pub(crate) db: Option<Database>,
 }
 
 impl ExpectedResponse for Begin<'_> {
@@ -146,6 +134,19 @@ impl Serialize for Begin<'_> {
         S: serde::Serializer,
     {
         serializer.serialize_newtype_variant("Request", 0x11, "BEGIN", &self.metadata)
+    }
+}
+
+impl Serialize for TxMetadata {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in self.0.iter() {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
     }
 }
 
@@ -176,7 +177,6 @@ impl Serialize for BeginMeta<'_> {
                     fields_count += 1;
                 }
             }
-            BeginExtra::None => {}
         }
 
         let mut map = serializer.serialize_map(Some(fields_count))?;
@@ -202,7 +202,6 @@ impl Serialize for BeginMeta<'_> {
                     map.serialize_entry("imp_user", imp_user)?;
                 }
             }
-            BeginExtra::None => {}
         }
         map.end()
     }
@@ -218,9 +217,9 @@ mod tests {
 
     #[test]
     fn serialize() {
-        let begin = Begin::builder()
+        let begin = Begin::builder(None)
             .with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"])
-            .with_tx_metadata(HashMap::from([("action".to_string(), "data_import".to_string()), ("user".to_string(), "alice".to_string())]))
+            .with_tx_metadata([("user".to_string(), "alice".to_string()), ("action".to_string(), "data_import".to_string())].to_vec())
             .build(Version::V4);
         let bytes = begin.to_bytes().unwrap();
 
@@ -243,9 +242,9 @@ mod tests {
 
         assert_eq!(bytes, expected);
 
-        let begin = Begin::builder()
+        let db = Some(Database::from("neo4j"));
+        let begin = Begin::builder(db.as_deref())
             .with_bookmarks(vec!["example-bookmark:1", "example-bookmark:2"])
-            .with_db(Database::from("neo4j"))
             .with_imp_user("my_user")
             .build(Version::V4_4);
         let bytes = begin.to_bytes().unwrap();
