@@ -114,7 +114,7 @@ impl Txn {
                 self.save_bookmark_state(&result);
                 Ok(result)
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 

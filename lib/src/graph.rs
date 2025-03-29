@@ -136,14 +136,14 @@ impl Graph {
     pub async fn start_txn_as(
         &self,
         operation: Operation,
-        bookmarks: Option<Vec<String>>,
+        bookmarks: Option<&[String]>,
     ) -> Result<Txn> {
         self.impl_start_txn_on(
             self.config.db.clone(),
             operation,
-            bookmarks.unwrap_or_default().as_slice(),
+            bookmarks.unwrap_or_default(),
         )
-            .await
+        .await
     }
 
     /// Starts a new transaction on the provided database.
@@ -234,10 +234,7 @@ impl Graph {
                 if let Some(db) = db.as_deref() {
                     query = query.extra("db", db);
                 }
-                query = query.extra(
-                    "mode",
-                    if is_read { "r" } else { "w" },
-                );
+                query = query.extra("mode", if is_read { "r" } else { "w" });
                 async move {
                     let mut connection =
                         pool.get(Some(operation)).await.map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
@@ -246,7 +243,7 @@ impl Graph {
             },
             Self::log_retry,
         )
-            .await;
+        .await;
 
         match result {
             Ok(result) => {
@@ -358,7 +355,7 @@ impl Graph {
             },
             Self::log_retry,
         )
-            .await
+        .await
     }
 
     fn log_retry(e: crate::Error, delay: Duration) {

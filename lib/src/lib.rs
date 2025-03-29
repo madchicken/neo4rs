@@ -454,6 +454,7 @@ async fn main() {
 mod auth;
 #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
 pub mod bolt;
+mod bookmarks;
 mod config;
 mod connection;
 mod convert;
@@ -473,7 +474,6 @@ pub mod summary;
 mod txn;
 mod types;
 mod version;
-mod bookmarks;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};
