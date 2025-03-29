@@ -1,5 +1,6 @@
 use std::{fmt, time::Duration};
 
+use crate::bookmarks::Bookmark;
 use serde::{
     de::{self, Visitor},
     Deserialize,
@@ -190,6 +191,12 @@ impl ResultSummary {
 
     pub(crate) fn set_t_first(&mut self, t_first: i64) {
         self.t_first = u64::try_from(t_first).ok();
+    }
+}
+
+impl Bookmark for ResultSummary {
+    fn get_bookmark(&self) -> Option<&str> {
+        self.bookmark.as_deref()
     }
 }
 

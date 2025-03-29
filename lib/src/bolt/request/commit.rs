@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bolt::{ExpectedResponse, Summary};
+use crate::bookmarks::Bookmark;
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Commit;
@@ -8,6 +9,12 @@ pub struct Commit;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct CommitResponse {
     pub bookmark: Option<String>,
+}
+
+impl Bookmark for CommitResponse {
+    fn get_bookmark(&self) -> Option<&str> {
+        self.bookmark.as_deref()
+    }
 }
 
 impl Serialize for Commit {

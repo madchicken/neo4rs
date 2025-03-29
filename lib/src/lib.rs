@@ -166,7 +166,10 @@ async fn main() {
 
 "##
 )]
-#![cfg_attr(feature="unstable-result-summary", doc = include_str!("../include/result_summary.rs"))]
+#![cfg_attr(
+    feature = "unstable-result-summary",
+    doc = include_str!("../include/result_summary.rs")
+)]
 #![cfg_attr(
     feature = "unstable-result-summary",
     doc = r"
@@ -470,6 +473,7 @@ pub mod summary;
 mod txn;
 mod types;
 mod version;
+mod bookmarks;
 
 pub use crate::auth::ClientCertificate;
 pub use crate::config::{Config, ConfigBuilder, Database};
@@ -499,6 +503,12 @@ pub(crate) use messages::Success;
 pub enum Operation {
     Read,
     Write,
+}
+
+impl Operation {
+    pub fn is_read(&self) -> bool {
+        matches!(self, Operation::Read)
+    }
 }
 
 impl Display for Operation {

@@ -123,7 +123,7 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     pub async fn start_txn(&self) -> Result<Txn> {
-        self.impl_start_txn_on(self.config.db.clone(), Operation::Write, &vec![])
+        self.impl_start_txn_on(self.config.db.clone(), Operation::Write, &[])
             .await
     }
 
@@ -143,7 +143,7 @@ impl Graph {
             operation,
             bookmarks.unwrap_or_default().as_slice(),
         )
-        .await
+            .await
     }
 
     /// Starts a new transaction on the provided database.
@@ -152,7 +152,7 @@ impl Graph {
     ///
     /// Transactions will not be automatically retried on any failure.
     pub async fn start_txn_on(&self, db: impl Into<Database>) -> Result<Txn> {
-        self.impl_start_txn_on(Some(db.into()), Operation::Write, &vec![])
+        self.impl_start_txn_on(Some(db.into()), Operation::Write, &[])
             .await
     }
 
@@ -208,20 +208,7 @@ impl Graph {
         q: impl Into<Query>,
         operation: Operation,
     ) -> Result<ResultSummary> {
-        match self.impl_run_on(Some(db.into()), q.into(), operation).await {
-            Ok(result) => {
-                if let Some(bookmark) = result.bookmark.as_deref() {
-                    match &self.pool {
-                        Routed(routed) => {
-                            routed.add_bookmark(bookmark).await;
-                        }
-                        Direct(_) => {}
-                    }
-                }
-                Ok(result)
-            }
-            Err(e) => Err(e),
-        }
+        self.impl_run_on(Some(db.into()), q.into(), operation).await
     }
 
     #[cfg(not(feature = "unstable-bolt-protocol-impl-v2"))]
@@ -237,7 +224,8 @@ impl Graph {
         q: Query,
         operation: Operation,
     ) -> Result<RunResult> {
-        backoff::future::retry_notify(
+        let is_read = operation.is_read();
+        let result = backoff::future::retry_notify(
             self.pool.backoff(),
             || {
                 let pool = &self.pool;
@@ -248,10 +236,7 @@ impl Graph {
                 }
                 query = query.extra(
                     "mode",
-                    match operation {
-                        Operation::Read => "r",
-                        Operation::Write => "w",
-                    },
+                    if is_read { "r" } else { "w" },
                 );
                 async move {
                     let mut connection =
@@ -261,7 +246,30 @@ impl Graph {
             },
             Self::log_retry,
         )
-        .await
+            .await;
+
+        match result {
+            Ok(result) => {
+                if let Some(bookmark) = result.bookmark.as_deref() {
+                    match &self.pool {
+                        Routed(routed) => {
+                            routed.add_bookmark(bookmark).await;
+                        }
+                        Direct(_) => {}
+                    }
+                } else if is_read {
+                    match &self.pool {
+                        Routed(routed) => {
+                            debug!("No bookmark received after a read operation, discarding all bookmarks");
+                            routed.clear_bookmarks().await;
+                        }
+                        Direct(_) => {}
+                    }
+                }
+                Ok(result)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Executes a READ/WRITE query on the configured database and returns a [`DetachedRowStream`]
@@ -350,7 +358,7 @@ impl Graph {
             },
             Self::log_retry,
         )
-        .await
+            .await
     }
 
     fn log_retry(e: crate::Error, delay: Duration) {

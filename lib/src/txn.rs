@@ -8,6 +8,8 @@ use crate::{
     Operation, RunResult,
 };
 
+use crate::bookmarks::Bookmark;
+
 /// A handle which is used to control a transaction, created as a result of [`crate::Graph::start_txn`]
 ///
 /// When a transaction is started, a dedicated connection is reserved and moved into the handle which
@@ -77,6 +79,7 @@ impl Txn {
         for query in queries {
             let summary = self.run(query.into()).await?;
             counters += summary.stats();
+            self.save_bookmark_state(&summary);
         }
         Ok(counters)
     }
@@ -106,7 +109,13 @@ impl Txn {
                 Operation::Write => "w",
             },
         );
-        query.run(&mut self.connection).await
+        match query.run(&mut self.connection).await {
+            Ok(result) => {
+                self.save_bookmark_state(&result);
+                Ok(result)
+            }
+            Err(e) => Err(e)
+        }
     }
 
     /// Executes a query and returns a [`RowStream`]
@@ -142,9 +151,7 @@ impl Txn {
         {
             match self.connection.send_recv_as(Commit).await? {
                 Summary::Success(resp) => {
-                    if let Some(bookmark) = resp.metadata.bookmark {
-                        self.bookmark = Some(bookmark);
-                    }
+                    self.save_bookmark_state(&resp.metadata);
                     Ok(())
                 }
                 msg => Err(msg.into_error("COMMIT")),
@@ -179,6 +186,14 @@ impl Txn {
     #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
     pub fn last_bookmark(&self) -> Option<&str> {
         self.bookmark.as_deref()
+    }
+
+    fn save_bookmark_state(&mut self, summary: &impl Bookmark) {
+        if let Some(bookmark) = summary.get_bookmark() {
+            self.bookmark = Some(bookmark.to_string());
+        } else {
+            self.bookmark = None;
+        }
     }
 }
 
