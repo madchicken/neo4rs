@@ -341,13 +341,7 @@ impl Graph {
                     query = query.extra("db", db);
                 }
                 let operation = operation.clone();
-                query = query.param(
-                    "mode",
-                    match operation {
-                        Operation::Read => "r",
-                        Operation::Write => "w",
-                    },
-                );
+                query = query.param("mode", if operation.is_read() { "r" } else { "w" });
                 async move {
                     let connection = pool.get(Some(operation)).await.map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
                     query.execute_retryable(fetch_size, connection).await
