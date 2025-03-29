@@ -113,14 +113,9 @@ impl RoutedConnectionManager {
 
     #[allow(dead_code)]
     pub(crate) async fn add_bookmark(&self, bookmark: &str) {
-        self.bookmarks.lock().await.push(bookmark.to_string());
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn remove_bookmark(&self, bookmark: &str) {
-        let mut bookmarks = self.bookmarks.lock().await;
-        if let Some(index) = bookmarks.iter().position(|b| b == bookmark) {
-            bookmarks.remove(index);
+        let mut guard = self.bookmarks.lock().await;
+        if !guard.contains(&bookmark.to_string()) {
+            guard.push(bookmark.to_string());
         }
     }
 
