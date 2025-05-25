@@ -32,10 +32,14 @@ enum ConnectionPoolManager {
 
 impl ConnectionPoolManager {
     #[allow(unused_variables)]
-    async fn get(&self, operation: Option<Operation>) -> Result<ManagedConnection> {
+    async fn get(
+        &self,
+        operation: Option<Operation>,
+        db: Option<Database>,
+    ) -> Result<ManagedConnection> {
         match self {
             #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
-            Routed(manager) => manager.get(operation).await,
+            Routed(manager) => manager.get(operation, db).await,
             Direct(pool) => pool.get().await.map_err(crate::Error::from),
         }
     }
@@ -164,7 +168,7 @@ impl Graph {
         operation: Operation,
         bookmarks: &[String],
     ) -> Result<Txn> {
-        let connection = self.pool.get(Some(operation.clone())).await?;
+        let connection = self.pool.get(Some(operation.clone()), db.clone()).await?;
         #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
         {
             Txn::new(db, self.config.fetch_size, connection, operation, bookmarks).await
@@ -236,9 +240,12 @@ impl Graph {
                     query = query.extra("db", db);
                 }
                 query = query.extra("mode", if is_read { "r" } else { "w" });
+                let db = db.clone();
                 async move {
-                    let mut connection =
-                        pool.get(Some(operation)).await.map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
+                    let mut connection = pool
+                        .get(Some(operation), db)
+                        .await
+                        .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
                     query.run_retryable(&mut connection).await
                 }
             },
@@ -346,8 +353,12 @@ impl Graph {
                 }
                 let operation = operation.clone();
                 query = query.param("mode", if operation.is_read() { "r" } else { "w" });
+                let db = db.clone();
                 async move {
-                    let connection = pool.get(Some(operation)).await.map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
+                    let connection = pool
+                        .get(Some(operation), db)
+                        .await
+                        .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
                     query.execute_retryable(fetch_size, connection).await
                 }
             },
