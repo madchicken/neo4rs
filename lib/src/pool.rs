@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::auth::ConnectionTLSConfig;
+use crate::config::BackoffConfig;
 use crate::{
     config::Config,
     connection::{Connection, ConnectionInfo},
@@ -15,7 +16,7 @@ pub type ManagedConnection = Object<ConnectionManager>;
 
 pub struct ConnectionManager {
     info: ConnectionInfo,
-    backoff: ExponentialBackoff,
+    backoff: Option<ExponentialBackoff>,
 }
 
 impl ConnectionManager {
@@ -24,18 +25,23 @@ impl ConnectionManager {
         user: &str,
         password: &str,
         tls_config: &ConnectionTLSConfig,
+        backoff_config: Option<&BackoffConfig>,
     ) -> Result<Self> {
         let info = ConnectionInfo::new(uri, user, password, tls_config)?;
-        let backoff = ExponentialBackoffBuilder::new()
-            .with_initial_interval(Duration::from_millis(1))
-            .with_randomization_factor(0.42)
-            .with_multiplier(2.0)
-            .with_max_elapsed_time(Some(Duration::from_secs(60)))
-            .build();
+        let backoff = backoff_config.map(|backoff_config| {
+            ExponentialBackoffBuilder::new()
+                .with_initial_interval(Duration::from_millis(backoff_config.min_delay_ms))
+                .with_multiplier(backoff_config.multiplier)
+                .with_randomization_factor(backoff_config.rand_factor)
+                .with_max_elapsed_time(Some(Duration::from_millis(
+                    backoff_config.max_total_delay_ms.unwrap_or(60000),
+                )))
+                .build()
+        });
         Ok(ConnectionManager { info, backoff })
     }
 
-    pub fn backoff(&self) -> ExponentialBackoff {
+    pub fn backoff(&self) -> Option<ExponentialBackoff> {
         self.backoff.clone()
     }
 }
@@ -61,6 +67,7 @@ pub fn create_pool(config: &Config) -> Result<ConnectionPool> {
         &config.user,
         &config.password,
         &config.tls_config,
+        config.backoff.as_ref(),
     )?;
     info!(
         "creating connection pool for node {} with max size {}",

@@ -44,7 +44,7 @@ impl ConnectionPoolManager {
         }
     }
 
-    fn backoff(&self) -> ExponentialBackoff {
+    fn backoff(&self) -> Option<ExponentialBackoff> {
         match self {
             #[cfg(feature = "unstable-bolt-protocol-impl-v2")]
             Routed(manager) => manager.backoff(),
@@ -230,28 +230,43 @@ impl Graph {
         operation: Operation,
     ) -> Result<RunResult> {
         let is_read = operation.is_read();
-        let result = backoff::future::retry_notify(
-            self.pool.backoff(),
-            || {
-                let pool = &self.pool;
-                let mut query = q.clone();
-                let operation = operation.clone();
-                if let Some(db) = db.as_deref() {
-                    query = query.extra("db", db);
-                }
-                query = query.extra("mode", if is_read { "r" } else { "w" });
-                let db = db.clone();
-                async move {
-                    let mut connection = pool
-                        .get(Some(operation), db)
-                        .await
-                        .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
-                    query.run_retryable(&mut connection).await
-                }
-            },
-            Self::log_retry,
-        )
-        .await;
+        let result = if let Some(backoff) = self.pool.backoff() {
+            backoff::future::retry_notify(
+                backoff,
+                || {
+                    let pool = &self.pool;
+                    let mut query = q.clone();
+                    let operation = operation.clone();
+                    if let Some(db) = db.as_deref() {
+                        query = query.extra("db", db);
+                    }
+                    query = query.extra("mode", if is_read { "r" } else { "w" });
+                    let db = db.clone();
+                    async move {
+                        let mut connection = pool
+                            .get(Some(operation), db)
+                            .await
+                            .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
+                        query.run_retryable(&mut connection).await
+                    }
+                },
+                Self::log_retry,
+            )
+                .await
+        } else {
+            let pool = &self.pool;
+            let mut query = q.clone();
+            let operation = operation.clone();
+            if let Some(db) = db.as_deref() {
+                query = query.extra("db", db);
+            }
+            query = query.extra("mode", if is_read { "r" } else { "w" });
+            let db = db.clone();
+            let mut connection = pool
+                .get(Some(operation), db)
+                .await?; // an error when retrieving a connection is considered permanent
+            query.run(&mut connection).await
+        };
 
         match result {
             Ok(result) => {
@@ -341,30 +356,47 @@ impl Graph {
         q: Query,
         operation: Operation,
     ) -> Result<DetachedRowStream> {
-        backoff::future::retry_notify(
-            self.pool.backoff(),
-            || {
-                let pool = &self.pool;
-                let mut query = q.clone();
-                let operation = operation.clone();
-                let fetch_size = self.config.fetch_size;
-                if let Some(db) = db.as_deref() {
-                    query = query.extra("db", db);
-                }
-                let operation = operation.clone();
-                query = query.param("mode", if operation.is_read() { "r" } else { "w" });
-                let db = db.clone();
-                async move {
-                    let connection = pool
-                        .get(Some(operation), db)
-                        .await
-                        .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
-                    query.execute_retryable(fetch_size, connection).await
-                }
-            },
-            Self::log_retry,
-        )
-        .await
+        if let Some(backoff) = self.pool.backoff() {
+            backoff::future::retry_notify(
+                backoff,
+                || {
+                    let pool = &self.pool;
+                    let mut query = q.clone();
+                    let operation = operation.clone();
+                    let fetch_size = self.config.fetch_size;
+                    if let Some(db) = db.as_deref() {
+                        query = query.extra("db", db);
+                    }
+                    let operation = operation.clone();
+                    query = query.param("mode", if operation.is_read() { "r" } else { "w" });
+                    let db = db.clone();
+                    async move {
+                        let connection = pool
+                            .get(Some(operation), db)
+                            .await
+                            .map_err(Error::Permanent)?; // an error when retrieving a connection is considered permanent
+                        query.execute_retryable(fetch_size, connection).await
+                    }
+                },
+                Self::log_retry,
+            )
+                .await
+        } else {
+            let pool = &self.pool;
+            let mut query = q.clone();
+            let operation = operation.clone();
+            let fetch_size = self.config.fetch_size;
+            if let Some(db) = db.as_deref() {
+                query = query.extra("db", db);
+            }
+            let operation = operation.clone();
+            query = query.param("mode", if operation.is_read() { "r" } else { "w" });
+            let db = db.clone();
+            let mut connection = pool
+                .get(Some(operation), db)
+                .await?; // an error when retrieving a connection is considered permanent
+            query.execute_mut(fetch_size, &mut connection).await.map(|stream| DetachedRowStream::new(stream, connection))
+        }
     }
 
     fn log_retry(e: crate::Error, delay: Duration) {

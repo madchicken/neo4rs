@@ -67,6 +67,69 @@ pub struct LiveConfig {
     pub(crate) fetch_size: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackoffConfig {
+    pub(crate) rand_factor: f64,
+    pub(crate) multiplier: f64,
+    pub(crate) min_delay_ms: u64,
+    pub(crate) max_total_delay_ms: Option<u64>,
+}
+
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        BackoffConfig {
+            rand_factor: 0.42,
+            multiplier: 2.0,
+            min_delay_ms: 1, // in milliseconds
+            max_total_delay_ms: Some(60000), // in seconds
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct BackoffConfigBuilder {
+    rand_factor: Option<f64>,
+    multiplier: Option<f64>,
+    min_delay_ms: Option<u64>,
+    max_total_delay_ms: Option<u64>,
+}
+
+#[allow(dead_code)]
+impl BackoffConfigBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn rand_factor(mut self, rand_factor: f64) -> Self {
+        self.rand_factor = Some(rand_factor);
+        self
+    }
+
+    pub fn multiplier(mut self, multiplier: f64) -> Self {
+        self.multiplier = Some(multiplier);
+        self
+    }
+
+    pub fn min_delay_ms(mut self, min_delay_ms: u64) -> Self {
+        self.min_delay_ms = Some(min_delay_ms);
+        self
+    }
+
+    pub fn max_total_delay_ms(mut self, max_total_delay_ms: Option<u64>) -> Self {
+        self.max_total_delay_ms = max_total_delay_ms;
+        self
+    }
+
+    pub fn build(self) -> BackoffConfig {
+        BackoffConfig {
+            rand_factor: self.rand_factor.unwrap_or(0.42),
+            multiplier: self.multiplier.unwrap_or(2.0),
+            min_delay_ms: self.min_delay_ms.unwrap_or(1),
+            max_total_delay_ms: self.max_total_delay_ms,
+        }
+    }
+}
+
 /// The configuration used to connect to the database, see [`crate::Graph::connect`].
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -77,6 +140,7 @@ pub struct Config {
     pub(crate) db: Option<Database>,
     pub(crate) fetch_size: usize,
     pub(crate) tls_config: ConnectionTLSConfig,
+    pub(crate) backoff: Option<BackoffConfig>,
 }
 
 impl Config {
@@ -97,6 +161,7 @@ pub struct ConfigBuilder {
     fetch_size: usize,
     max_connections: usize,
     tls_config: ConnectionTLSConfig,
+    backoff_config: Option<BackoffConfig>,
 }
 
 impl ConfigBuilder {
@@ -166,6 +231,11 @@ impl ConfigBuilder {
         self
     }
 
+    pub fn with_backoff(mut self, backoff: Option<BackoffConfig>) -> Self {
+        self.backoff_config = backoff;
+        self
+    }
+
     pub fn build(self) -> Result<Config> {
         if let (Some(uri), Some(user), Some(password)) = (self.uri, self.user, self.password) {
             Ok(Config {
@@ -176,6 +246,7 @@ impl ConfigBuilder {
                 max_connections: self.max_connections,
                 db: self.db,
                 tls_config: self.tls_config,
+                backoff: self.backoff_config,
             })
         } else {
             Err(Error::InvalidConfig)
@@ -193,6 +264,7 @@ impl Default for ConfigBuilder {
             max_connections: DEFAULT_MAX_CONNECTIONS,
             fetch_size: DEFAULT_FETCH_SIZE,
             tls_config: ConnectionTLSConfig::None,
+            backoff_config: Some(BackoffConfig::default()),
         }
     }
 }
@@ -210,6 +282,7 @@ mod tests {
             .db("some_db")
             .fetch_size(10)
             .max_connections(5)
+            .with_backoff(None)
             .build()
             .unwrap();
         assert_eq!(config.uri, "127.0.0.1:7687");
@@ -219,6 +292,7 @@ mod tests {
         assert_eq!(config.fetch_size, 10);
         assert_eq!(config.max_connections, 5);
         assert_eq!(config.tls_config, ConnectionTLSConfig::None);
+        assert_eq!(config.backoff, None);
     }
 
     #[test]
@@ -236,6 +310,11 @@ mod tests {
         assert_eq!(config.fetch_size, 200);
         assert_eq!(config.max_connections, 16);
         assert_eq!(config.tls_config, ConnectionTLSConfig::None);
+        assert!(config.backoff.is_some());
+        assert_eq!(
+            config.backoff.as_ref().unwrap(),
+            &BackoffConfig::default()
+        );
     }
 
     #[test]
@@ -245,6 +324,7 @@ mod tests {
             .user("some_user")
             .password("some_password")
             .skip_ssl_validation()
+            .with_backoff(Some(BackoffConfigBuilder::new().rand_factor(0.5).build()))
             .build()
             .unwrap();
         assert_eq!(config.uri, "127.0.0.1:7687");
@@ -254,6 +334,11 @@ mod tests {
         assert_eq!(config.fetch_size, 200);
         assert_eq!(config.max_connections, 16);
         assert_eq!(config.tls_config, ConnectionTLSConfig::NoSSLValidation);
+        assert!(config.backoff.is_some());
+        assert_eq!(
+            config.backoff.as_ref().unwrap().rand_factor,
+            0.5
+        );
     }
 
     #[test]

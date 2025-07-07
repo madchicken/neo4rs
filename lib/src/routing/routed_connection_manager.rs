@@ -19,7 +19,7 @@ pub struct RoutedConnectionManager {
     load_balancing_strategy: Arc<dyn LoadBalancingStrategy>,
     connection_registry: Arc<ConnectionRegistry>,
     bookmarks: Arc<Mutex<Vec<String>>>,
-    backoff: Arc<ExponentialBackoff>,
+    backoff: Arc<Option<ExponentialBackoff>>,
     channel: Sender<RegistryCommand>,
 }
 
@@ -28,12 +28,12 @@ const ROUTING_TABLE_MAX_WAIT_TIME_MS: i32 = 5000;
 impl RoutedConnectionManager {
     pub fn new(config: &Config, provider: Arc<dyn RoutingTableProvider>) -> Result<Self, Error> {
         let backoff = Arc::new(
-            ExponentialBackoffBuilder::new()
+            Some(ExponentialBackoffBuilder::new()
                 .with_initial_interval(Duration::from_millis(1))
                 .with_randomization_factor(0.42)
                 .with_multiplier(2.0)
                 .with_max_elapsed_time(Some(Duration::from_secs(60)))
-                .build(),
+                .build()),
         );
 
         let connection_registry = Arc::new(ConnectionRegistry::default());
@@ -139,7 +139,7 @@ impl RoutedConnectionManager {
         }
     }
 
-    pub(crate) fn backoff(&self) -> ExponentialBackoff {
+    pub(crate) fn backoff(&self) -> Option<ExponentialBackoff> {
         self.backoff.as_ref().clone()
     }
 
